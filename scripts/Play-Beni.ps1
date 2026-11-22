@@ -23,7 +23,7 @@
     .\scripts\Play-Beni.ps1
 
 .EXAMPLE
-    .\scripts\Play-Beni.ps1 -Policy ..\rl-roboracer\third_party\open-beni\assets\models\policy.onnx
+    .\scripts\Play-Beni.ps1 -Policy ..\rl-robotlab\third_party\open-beni\assets\models\policy.onnx
 #>
 [CmdletBinding()]
 param(

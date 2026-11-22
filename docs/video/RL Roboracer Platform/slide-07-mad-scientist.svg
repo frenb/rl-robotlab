@@ -69,7 +69,7 @@
 <text data-box="640,1920" x="1219.4" y="965" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17" fill="#e6e9ef" font-weight="400" text-anchor="middle">$250 a month budget</text>
 <rect x="1342.8" y="940" width="164.8" height="38" rx="19" fill="#161b27" stroke="#262d3d" stroke-width="1"/>
 <text data-box="640,1920" x="1425.2" y="965" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17" fill="#e6e9ef" font-weight="400" text-anchor="middle">Read-only repo</text>
-<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-roboracer · platform overview · 2026-09-26</text>
+<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-robotlab · platform overview · 2026-09-26</text>
 <text data-box="40,600" x="70" y="150" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="15" fill="#B26BFF" font-weight="700" text-anchor="start" letter-spacing="1.6">USER JOURNEYS · 7 OF 8</text>
 <text data-box="40,600" x="70" y="214" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="46" fill="#e6e9ef" font-weight="700" text-anchor="start">An AI research agent</text>
 <circle cx="76" cy="284" r="4" fill="#8a93a6"/>

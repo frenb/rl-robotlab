@@ -2,7 +2,7 @@
   "name": "roboracer-console-mcp",
   "version": "0.1.0",
   "private": true,
-  "description": "MCP server exposing the rl-roboracer dashboard console (jobs, models, designs, gyms, demos, MadScientist) and gym releases.",
+  "description": "MCP server exposing the rl-robotlab dashboard console (jobs, models, designs, gyms, demos, MadScientist) and gym releases.",
   "type": "module",
   "main": "src/index.js",
   "bin": "src/index.js",

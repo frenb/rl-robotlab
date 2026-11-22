@@ -109,7 +109,7 @@ public class HUDPanel : MonoBehaviour
         scrollRect = new Rect();
     }
 
-    // ---- rl-roboracer local change -------------------------------------
+    // ---- rl-robotlab local change -------------------------------------
     //
     // Scale this panel with the window, like the project's own overlays.
     // IMGUI draws in raw pixels, so a panel authored at 1080p is unreadable

@@ -13,9 +13,9 @@
     -PromptVersion any includes earlier ones.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-roboracer-test\4-Results.ps1
+    powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-robotlab-test\4-Results.ps1
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-roboracer-test\4-Results.ps1 -Since '2026-10-14 22:00' -Facts
+    powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-robotlab-test\4-Results.ps1 -Since '2026-10-14 22:00' -Facts
 #>
 [CmdletBinding()]
 param(
@@ -27,14 +27,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if ($PromptVersion -eq 'any') { $PromptVersion = '' }
-if (-not $ResultsDir) { $ResultsDir = if (Test-Path (Join-Path $PSScriptRoot 'results\results.jsonl')) { Join-Path $PSScriptRoot 'results' } else { 'C:\Users\Public\rl-roboracer-test\results' } }
+if (-not $ResultsDir) { $ResultsDir = if (Test-Path (Join-Path $PSScriptRoot 'results\results.jsonl')) { Join-Path $PSScriptRoot 'results' } else { 'C:\Users\Public\rl-robotlab-test\results' } }
 $file = Join-Path $ResultsDir 'results.jsonl'
 if (-not (Test-Path $file)) { throw "No results in $ResultsDir yet; run step 3." }
 $rows = @(Get-Content $file | ForEach-Object { $_ | ConvertFrom-Json } |
-    Where-Object { $_.repo -eq 'rl-roboracer' -and (-not $PromptVersion -or $_.prompt_version -eq $PromptVersion) -and [datetime]$_.time -ge $Since })
-if (-not $rows) { Write-Host "No rl-roboracer results$(if ($PromptVersion) { " for $PromptVersion" })$(if ($Since -gt [datetime]::MinValue) { " since $Since" })." -ForegroundColor Yellow; return }
+    Where-Object { $_.repo -eq 'rl-robotlab' -and (-not $PromptVersion -or $_.prompt_version -eq $PromptVersion) -and [datetime]$_.time -ge $Since })
+if (-not $rows) { Write-Host "No rl-robotlab results$(if ($PromptVersion) { " for $PromptVersion" })$(if ($Since -gt [datetime]::MinValue) { " since $Since" })." -ForegroundColor Yellow; return }
 
-Write-Host "rl-roboracer probe results$(if ($PromptVersion) { " ($PromptVersion)" }): $($rows.Count) run(s), $($rows[0].time) to $($rows[-1].time)" -ForegroundColor Cyan
+Write-Host "rl-robotlab probe results$(if ($PromptVersion) { " ($PromptVersion)" }): $($rows.Count) run(s), $($rows[0].time) to $($rows[-1].time)" -ForegroundColor Cyan
 $table = foreach ($g in ($rows | Group-Object model | Sort-Object Name)) {
     $ok = @($g.Group | Where-Object delivered)
     $rec = @($ok | ForEach-Object { [double]$_.recall })

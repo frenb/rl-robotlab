@@ -13,7 +13,7 @@ import { list, post } from '../api.js';
 import { defineTool, confirmArg, requireConfirm } from '../util.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
-const GITHUB_REPO = process.env.ROBORACER_GITHUB_REPO || 'frenb/rl-roboracer';
+const GITHUB_REPO = process.env.ROBORACER_GITHUB_REPO || 'frenb/rl-robotlab';
 const UNITY_BINARY_DIR = process.env.ROBORACER_UNITY_BINARY_DIR || path.join(REPO_ROOT, '..', 'UnityBinary');
 const UNITY_BUILDS_DIR = path.join(REPO_ROOT, 'unity', 'Builds');
 const RELEASE_DIR = path.join(UNITY_BUILDS_DIR, 'release');

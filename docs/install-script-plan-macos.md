@@ -135,11 +135,11 @@ ships bash 3.2, which lacks features a script this size will want.
 `scripts/install/install-macos.sh`, run with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frenb/rl-roboracer/main/scripts/install/install-macos.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/frenb/rl-robotlab/main/scripts/install/install-macos.sh | zsh
 ```
 
 Same structure as the Windows script: phases that check before acting,
-state in `~/Library/Application Support/rl-roboracer/install-state.json`, a
+state in `~/Library/Application Support/rl-robotlab/install-state.json`, a
 log beside it, and the same `install-report.json` with `-ExpectClean` and
 `-DryRun` (as `--expect-clean`, `--dry-run`).
 

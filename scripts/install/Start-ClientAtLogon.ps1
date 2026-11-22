@@ -44,7 +44,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $wrapper = Join-Path $repo 'scripts\RunClientWrapper.ps1'
-$host.UI.RawUI.WindowTitle = "rl-roboracer Unity clients x$N ($repo)"
+$host.UI.RawUI.WindowTitle = "rl-robotlab Unity clients x$N ($repo)"
 
 if ($N -eq 1) {
     $running = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'pwsh.exe'" -ErrorAction SilentlyContinue |

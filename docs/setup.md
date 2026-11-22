@@ -2,12 +2,12 @@
 
 Step-by-step development setup on Windows with an NVIDIA GPU. Most people should use the one-command installer in the [README](../README.md#quickstart) instead; it automates all of this.
 
-> **Two Unity projects.** `unity/` is the original Unity 2020.3.11f1 project these steps build. `unity6.6/` is its Unity 6.6 port, which the newest gyms (`*-Unity6.6-*` on the [v0.1 release](https://github.com/frenb/rl-roboracer/releases/tag/v0.1)) are built from; open it with a Unity 6.6 editor instead. The installer downloads prebuilt gyms, so you only need an editor to change the simulator.
+> **Two Unity projects.** `unity/` is the original Unity 2020.3.11f1 project these steps build. `unity6.6/` is its Unity 6.6 port, which the newest gyms (`*-Unity6.6-*` on the [v0.1 release](https://github.com/frenb/rl-robotlab/releases/tag/v0.1)) are built from; open it with a Unity 6.6 editor instead. The installer downloads prebuilt gyms, so you only need an editor to change the simulator.
 
 ## Layout
 
 ```
-rl-roboracer/
+rl-robotlab/
 ├── docker-compose.yml         # the whole stack
 ├── docker/
 │   ├── fly_brain/             # frozen fly connectome service (Python 3.10)
@@ -26,7 +26,7 @@ host bind mount. The Unity gym binary lives in-repo at
 
 ```
 LATEST/
-├── rl-roboracer/      # this repo
+├── rl-robotlab/      # this repo
 ├── saved_models/      # tf-agents checkpoints   (bind-mounted)
 ├── mongodb/           # mongo data dir          (bind-mounted)
 └── tfrecords/         # demonstration trajectories (bind-mounted)
@@ -68,14 +68,14 @@ are PowerShell.
 
 Parent directory name can be anything; compose bind-mounts
 `../saved_models`, `../mongodb`, and `../tfrecords` relative to the
-repo, so those three folders must sit next to `rl-roboracer`. The
+repo, so those three folders must sit next to `rl-robotlab`. The
 tfrecords location can be pointed elsewhere with `TFRECORDS_DIR` — see
 [the TFRecord corpus](training.md#the-tfrecord-corpus-layout-tfrecords_dir-and-housekeeping).
 
 ```powershell
 cd <parent>   # e.g. Documents\agents\robots\LATEST
-git clone https://github.com/frenb/rl-roboracer.git
-cd rl-roboracer
+git clone https://github.com/frenb/rl-robotlab.git rl-robotlab
+cd rl-robotlab
 ```
 
 ### 3. Create sibling data directories

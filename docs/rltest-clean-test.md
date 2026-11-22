@@ -27,11 +27,11 @@ account type > Administrator.
 ## 1. Stage the current version (your account)
 
 ```powershell
-cd <your clone>\rl-roboracer
+cd <your clone>\rl-robotlab
 powershell -ExecutionPolicy Bypass -File scripts\install\Prepare-RlTest.ps1
 ```
 
-This writes `C:\Users\Public\rl-roboracer-test\rl-roboracer.bundle`, a git
+This writes `C:\Users\Public\rl-robotlab-test\rl-robotlab.bundle`, a git
 bundle whose branch `rltest` is the working tree as it is now, including
 uncommitted and untracked files but not `.gitignore`d ones such as `.env`. It
 does not commit to or change your branch. It also copies the installer, the
@@ -47,7 +47,7 @@ Options:
 - `-LocalModels gemma,gpt-oss` (default, about 16 GB). Use `all`
   (adds `qwen` and `granite`) or `none` if you will only test hosted models.
 - The gym zips and `roboracer-demos-donut.zip` must already be in
-  `C:\Users\Public\rl-roboracer-test`. The script warns if one is missing.
+  `C:\Users\Public\rl-robotlab-test`. The script warns if one is missing.
 
 Run it again after every code change you want to test.
 
@@ -62,7 +62,7 @@ Then hand the machine over:
 Open PowerShell (not as administrator):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-roboracer-test\Reset-TestAccount.ps1 -ResetDocker
+powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-robotlab-test\Reset-TestAccount.ps1 -ResetDocker
 ```
 
 Add `-WhatIf` first to see what it would remove. In `rltest` it removes:
@@ -79,13 +79,13 @@ Add `-WhatIf` first to see what it would remove. In `rltest` it removes:
   rather than downloading base images and building them again.
   Use it when the test is not about the images phase.
 - the Startup shortcut and any pending RunOnce resume entry
-- `%USERPROFILE%\rl-roboracer`: code, `.env`, database, models, gyms
-- `%LOCALAPPDATA%\rl-roboracer-install`: installer state, logs, report and
+- `%USERPROFILE%\rl-robotlab`: code, `.env`, database, models, gyms
+- `%LOCALAPPDATA%\rl-robotlab-install`: installer state, logs, report and
   the saved doctor choice
-- `%LOCALAPPDATA%\rl-roboracer`: doctor transcripts
+- `%LOCALAPPDATA%\rl-robotlab`: doctor transcripts
 
 First it copies the reports, logs and doctor results to
-`C:\Users\Public\rl-roboracer-test\results\<timestamp>`, so you can read them
+`C:\Users\Public\rl-robotlab-test\results\<timestamp>`, so you can read them
 from your account. It refuses to run in any account other than `rltest`, and
 refuses to touch Docker while another account's Docker Desktop is running.
 
@@ -112,7 +112,7 @@ Wait a minute after the first sign-in for Windows to finish setting up the
 account, then in PowerShell (not as administrator):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-roboracer-test\Install.ps1
+powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-robotlab-test\Install.ps1
 ```
 
 No other options are needed. The installer finds the staged code bundle,
@@ -166,7 +166,7 @@ Choosing a hosted model sends the doctor's logs, file contents and command
 output from `rltest` to that provider, with secret values masked.
 
 **The choice is remembered** in
-`%LOCALAPPDATA%\rl-roboracer-install\doctor-choice.txt`, so a resumed run
+`%LOCALAPPDATA%\rl-robotlab-install\doctor-choice.txt`, so a resumed run
 (after a restart or sign-out) does not ask again. A hosted key is asked for
 again on resume unless it is set in the environment. To change the choice, pass
 `-Doctor` again, or run the reset (step 2).
@@ -175,7 +175,7 @@ again on resume unless it is set in the environment. To change the choice, pass
 code 1). Its root cause, fix and confidence are printed under the failure,
 added to `install-report.json` as a `diagnoses` entry with id `doctor`, and
 saved as `doctor-result-<time>.json` next to the report. Its full transcript is
-in `%LOCALAPPDATA%\rl-roboracer\doctor`. The doctor only reads; it changes
+in `%LOCALAPPDATA%\rl-robotlab\doctor`. The doctor only reads; it changes
 nothing. A pause to restart Windows (exit code 2) or to sign out (exit code 3)
 is not a failure. Do what it says and run the same command again.
 
@@ -204,10 +204,10 @@ one breaks something on purpose, runs the doctor, grades its answer and
 restores:
 
 The doctor and its scenarios are InstallZero's; step 1 stages a copy in
-`C:\Users\Public\rl-roboracer-test\installzero`.
+`C:\Users\Public\rl-robotlab-test\installzero`.
 
 ```powershell
-cd C:\Users\Public\rl-roboracer-test\installzero\doctor\eval
+cd C:\Users\Public\rl-robotlab-test\installzero\doctor\eval
 $env:RL_DOCTOR_ASSETS = 'C:\Users\Public\doctor-assets'
 .\Invoke-DoctorEval.ps1 -Action List
 .\Invoke-DoctorEval.ps1 -Action Run -Models xai:grok-4.7
@@ -217,8 +217,8 @@ $env:RL_DOCTOR_ASSETS = 'C:\Users\Public\doctor-assets'
 To ask the doctor about something directly:
 
 ```powershell
-cd $env:USERPROFILE\rl-roboracer\rl-roboracer
-$doctor = 'C:\Users\Public\rl-roboracer-test\installzero\doctor\Doctor.ps1'
+cd $env:USERPROFILE\rl-robotlab\rl-robotlab
+$doctor = 'C:\Users\Public\rl-robotlab-test\installzero\doctor\Doctor.ps1'
 & $doctor -Problem 'The dashboard at http://localhost shows no gyms' -Remote xai:grok-4.7
 & $doctor -Problem '...' -Model gemma-4-E4B-it-Q4_K_M.gguf
 ```
@@ -226,7 +226,7 @@ $doctor = 'C:\Users\Public\rl-roboracer-test\installzero\doctor\Doctor.ps1'
 ## 5. Back to your account
 
 In `rltest`: quit Docker Desktop, close the Unity window, sign out. Run step 2
-first if you want the results copied to `C:\Users\Public\rl-roboracer-test\results`.
+first if you want the results copied to `C:\Users\Public\rl-robotlab-test\results`.
 
-In your account: start Docker Desktop, then `docker compose -p rl-roboracer start`
+In your account: start Docker Desktop, then `docker compose -p rl-robotlab start`
 in the repo to bring your own stack back.

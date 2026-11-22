@@ -1,15 +1,15 @@
-# InstallZero one-line installer for rl-roboracer on Windows. In PowerShell:
+# InstallZero one-line installer for rl-robotlab on Windows. In PowerShell:
 #
-#   irm https://raw.githubusercontent.com/frenb/rl-roboracer/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/frenb/rl-robotlab/main/install.ps1 | iex
 #
 # With installzero install options (installzero install --help lists them):
 #
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/frenb/rl-roboracer/main/install.ps1))) --model google
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/frenb/rl-robotlab/main/install.ps1))) --model google
 #
 # Downloads the InstallZero CLI (the version below, checked against the
 # release's SHA256SUMS) into %LOCALAPPDATA%\installzero\bin and runs
-# installzero install frenb/rl-roboracer, which gets the repo into
-# %USERPROFILE%\rl-roboracer\rl-roboracer (git clone, or GitHub's archive when
+# installzero install frenb/rl-robotlab, which gets the repo into
+# %USERPROFILE%\rl-robotlab\rl-robotlab (git clone, or GitHub's archive when
 # Git is not installed yet; install.md installs it) and follows its install.md.
 # The same CLI is attached to each release as installzero.exe, which does this
 # when opened. RL_INSTALL_BRANCH picks another branch, INSTALLZERO_VERSION
@@ -20,7 +20,7 @@
     $ProgressPreference = 'SilentlyContinue'
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-    $project = 'frenb/rl-roboracer'
+    $project = 'frenb/rl-robotlab'
     if ($env:RL_INSTALL_BRANCH) { $project += "@$env:RL_INSTALL_BRANCH" }
     $version = if ($env:INSTALLZERO_VERSION) { $env:INSTALLZERO_VERSION } else { 'v0.1.9' }
 
@@ -45,5 +45,5 @@
     Move-Item -Force $tmp $bin
 
     & $bin install $project @args
-    Write-Host "installzero is in $bin; run it again with the same arguments to resume, or $bin uninstall rl-roboracer to remove what it installed."
+    Write-Host "installzero is in $bin; run it again with the same arguments to resume, or $bin uninstall rl-robotlab to remove what it installed."
 } @args

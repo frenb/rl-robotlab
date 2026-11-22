@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    InstallZero uninstaller for rl-roboracer: removes what Install.ps1 put on
+    InstallZero uninstaller for rl-robotlab: removes what Install.ps1 put on
     this PC for this Windows account.
 
 .DESCRIPTION
@@ -25,7 +25,7 @@
     cache (-PruneBuildCache removes that too).
 
 .PARAMETER InstallDir
-    The -InstallDir the install used. Default %USERPROFILE%\rl-roboracer.
+    The -InstallDir the install used. Default %USERPROFILE%\rl-robotlab.
 
 .PARAMETER RemoveData
     Also delete saved_models, mongodb and tfrecords without asking.
@@ -42,7 +42,7 @@
 
 .EXAMPLE
     .\Uninstall.ps1
-    Asks, then removes the install in %USERPROFILE%\rl-roboracer.
+    Asks, then removes the install in %USERPROFILE%\rl-robotlab.
 
 .EXAMPLE
     .\Uninstall.ps1 -InstallDir D:\rl -RemoveData -Yes
@@ -54,7 +54,7 @@
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [string]$InstallDir = (Join-Path $env:USERPROFILE 'rl-roboracer'),
+    [string]$InstallDir = (Join-Path $env:USERPROFILE 'rl-robotlab'),
     [switch]$RemoveData,
     [switch]$KeepData,
     [switch]$PruneBuildCache,
@@ -65,9 +65,9 @@ $ErrorActionPreference = 'Stop'
 $whatIf = $WhatIfPreference; $WhatIfPreference = $false; Import-Module CimCmdlets; $WhatIfPreference = $whatIf
 
 $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
-$repo      = Join-Path $InstallDir 'rl-roboracer'
-$stateDir  = Join-Path $env:LOCALAPPDATA 'rl-roboracer-install'
-$doctorDir = Join-Path $env:LOCALAPPDATA 'rl-roboracer'
+$repo      = Join-Path $InstallDir 'rl-robotlab'
+$stateDir  = Join-Path $env:LOCALAPPDATA 'rl-robotlab-install'
+$doctorDir = Join-Path $env:LOCALAPPDATA 'rl-robotlab'
 $dataDirs  = @('saved_models', 'mongodb', 'tfrecords' | ForEach-Object { Join-Path $InstallDir $_ } | Where-Object { Test-Path $_ })
 $dockerExe = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
 $env:Path += ";$(Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin')"
@@ -98,10 +98,10 @@ if (-not (Test-Path $InstallDir) -and -not (Test-Path $stateDir)) {
     exit 0
 }
 if ((Test-Path $InstallDir) -and -not (Test-Path (Join-Path $repo 'docker-compose.yml')) -and -not $dataDirs) {
-    throw "$InstallDir does not look like an rl-roboracer install (no rl-roboracer\docker-compose.yml, saved_models, mongodb or tfrecords). Pass the folder the install used with -InstallDir."
+    throw "$InstallDir does not look like an rl-robotlab install (no rl-robotlab\docker-compose.yml, saved_models, mongodb or tfrecords). Pass the folder the install used with -InstallDir."
 }
 
-Write-Host "InstallZero: uninstall rl-roboracer from $InstallDir" -ForegroundColor Cyan
+Write-Host "InstallZero: uninstall rl-robotlab from $InstallDir" -ForegroundColor Cyan
 if ($interactive -and -not $WhatIfPreference) {
     if ((Read-Host '  Remove it? [y/N]') -notmatch '^(y|yes)$') { Write-Host '  Nothing removed.'; exit 0 }
 }
@@ -145,7 +145,7 @@ if ((Test-Path (Join-Path $repo 'docker-compose.yml')) -and (Get-Command docker 
             $cfg = if ($LASTEXITCODE -eq 0) { try { $cfgText | ConvertFrom-Json } catch { $null } } else { $null }
             $project = if ($cfg) { $cfg.name } else { $null }
             if (-not $project) { $project = Get-EnvValue 'COMPOSE_PROJECT_NAME' }
-            if (-not $project) { $project = 'rl-roboracer' }
+            if (-not $project) { $project = 'rl-robotlab' }
             $built = if ($cfg) { @($cfg.services.PSObject.Properties | Where-Object { $_.Value.PSObject.Properties.Name -contains 'build' -and $_.Value.image } | ForEach-Object { $_.Value.image } | Sort-Object -Unique) } else { @() }
 
             # No quotes in the template: Windows PowerShell 5.1 strips them from native arguments.
@@ -176,12 +176,12 @@ if ((Test-Path (Join-Path $repo 'docker-compose.yml')) -and (Get-Command docker 
 # 3. Sign-in hooks.
 $startup = [Environment]::GetFolderPath('Startup')
 $shell = New-Object -ComObject WScript.Shell
-Get-ChildItem $startup -Filter 'rl-roboracer*.lnk' -ErrorAction SilentlyContinue |
+Get-ChildItem $startup -Filter 'rl-robotlab*.lnk' -ErrorAction SilentlyContinue |
     Where-Object { $shell.CreateShortcut($_.FullName).Arguments.IndexOf($repo, [StringComparison]::OrdinalIgnoreCase) -ge 0 } |
     ForEach-Object { Remove-Path $_.FullName }
 $runOnce = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce'
-if ((Get-ItemProperty $runOnce -ErrorAction SilentlyContinue).PSObject.Properties.Name -contains 'rl-roboracer-install') {
-    if ($PSCmdlet.ShouldProcess('RunOnce rl-roboracer-install', 'remove')) { Step 'removing the pending resume entry'; Remove-ItemProperty $runOnce -Name 'rl-roboracer-install' }
+if ((Get-ItemProperty $runOnce -ErrorAction SilentlyContinue).PSObject.Properties.Name -contains 'rl-robotlab-install') {
+    if ($PSCmdlet.ShouldProcess('RunOnce rl-robotlab-install', 'remove')) { Step 'removing the pending resume entry'; Remove-ItemProperty $runOnce -Name 'rl-robotlab-install' }
 }
 
 # 4. Files.
@@ -196,7 +196,7 @@ Remove-Path $doctorDir
 if ($WhatIfPreference) { Write-Host 'Preview only (-WhatIf): nothing was removed.'; exit 0 }
 $left = @(@($repo, $stateDir, $doctorDir) | Where-Object { Test-Path $_ })
 if ($left) { Write-Host "  Could not delete: $($left -join ', ') (a file may be in use). Close the Unity window or sign out and back in, then run this again." -ForegroundColor Yellow; exit 1 }
-Write-Host 'rl-roboracer is uninstalled.' -ForegroundColor Green
+Write-Host 'rl-robotlab is uninstalled.' -ForegroundColor Green
 if (-not $deleteData -and $dataDirs) { Write-Host "Kept your data: $($dataDirs -join ', '). Delete those folders, or run again with -RemoveData, to remove it." }
 if ($dockerLeft) { exit 1 }
 Write-Host 'WSL, Git and Docker Desktop are still installed; remove them from Settings > Apps if nothing else needs them.'

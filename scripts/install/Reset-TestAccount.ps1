@@ -32,11 +32,11 @@
     account. Default rltest.
 
 .PARAMETER InstallDir
-    The -InstallDir the test install used. Default %USERPROFILE%\rl-roboracer.
+    The -InstallDir the test install used. Default %USERPROFILE%\rl-robotlab.
 
 .PARAMETER SaveResultsTo
     Copy the installer's report and logs and the doctor's results here first.
-    Default C:\Users\Public\rl-roboracer-test\results\<timestamp>.
+    Default C:\Users\Public\rl-robotlab-test\results\<timestamp>.
 
 .PARAMETER NoSaveResults
     Do not copy the results anywhere.
@@ -69,8 +69,8 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$Account = 'rltest',
-    [string]$InstallDir = (Join-Path $env:USERPROFILE 'rl-roboracer'),
-    [string]$SaveResultsTo = ("C:\Users\Public\rl-roboracer-test\results\" + (Get-Date -Format 'yyyyMMdd-HHmmss')),
+    [string]$InstallDir = (Join-Path $env:USERPROFILE 'rl-robotlab'),
+    [string]$SaveResultsTo = ("C:\Users\Public\rl-robotlab-test\results\" + (Get-Date -Format 'yyyyMMdd-HHmmss')),
     [switch]$NoSaveResults,
     [switch]$ResetDocker,
     [switch]$KeepImages
@@ -81,9 +81,9 @@ $whatIf = $WhatIfPreference; $WhatIfPreference = $false; Import-Module CimCmdlet
 if ($ResetDocker -and $KeepImages) { throw '-ResetDocker deletes the Docker disk the images are on, so it cannot keep them. Use -KeepImages alone (Docker Desktop settings are kept too), or -ResetDocker alone.' }
 if ($env:USERNAME -ne $Account) { throw "This removes the whole test install of account '$Account', but you are signed in as '$env:USERNAME'. Sign in as $Account, or pass -Account $env:USERNAME if this really is a test account." }
 
-$repo     = Join-Path $InstallDir 'rl-roboracer'
-$stateDir = Join-Path $env:LOCALAPPDATA 'rl-roboracer-install'
-$doctorDir = Join-Path $env:LOCALAPPDATA 'rl-roboracer'
+$repo     = Join-Path $InstallDir 'rl-robotlab'
+$stateDir = Join-Path $env:LOCALAPPDATA 'rl-robotlab-install'
+$doctorDir = Join-Path $env:LOCALAPPDATA 'rl-robotlab'
 $dockerExe = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
 $env:Path += ";$(Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin')"
 
@@ -174,10 +174,10 @@ if ($ResetDocker) {
 
 # 4. Sign-in hooks.
 $startup = [Environment]::GetFolderPath('Startup')
-Get-ChildItem $startup -Filter 'rl-roboracer*.lnk' -ErrorAction SilentlyContinue | ForEach-Object { Remove-Path $_.FullName }
+Get-ChildItem $startup -Filter 'rl-robotlab*.lnk' -ErrorAction SilentlyContinue | ForEach-Object { Remove-Path $_.FullName }
 $runOnce = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce'
-if ((Get-ItemProperty $runOnce -ErrorAction SilentlyContinue).PSObject.Properties.Name -contains 'rl-roboracer-install') {
-    if ($PSCmdlet.ShouldProcess('RunOnce rl-roboracer-install', 'remove')) { Step 'removing the RunOnce resume entry'; Remove-ItemProperty $runOnce -Name 'rl-roboracer-install' }
+if ((Get-ItemProperty $runOnce -ErrorAction SilentlyContinue).PSObject.Properties.Name -contains 'rl-robotlab-install') {
+    if ($PSCmdlet.ShouldProcess('RunOnce rl-robotlab-install', 'remove')) { Step 'removing the RunOnce resume entry'; Remove-ItemProperty $runOnce -Name 'rl-robotlab-install' }
 }
 
 # 5. Files.

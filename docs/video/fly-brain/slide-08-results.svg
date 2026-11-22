@@ -61,5 +61,5 @@
 <text data-box="640,1900" x="690" y="906" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16" fill="#6b7488" font-weight="400" text-anchor="start">Mean of a fresh greedy eval, 10 trials of 5 episodes (random: 3 trials). fly_donut is the mean of two such evals.</text>
 <text data-box="640,1900" x="690" y="930" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16" fill="#6b7488" font-weight="400" text-anchor="start">AWAC + BC trials ranged 24.9–77.3; its best in-training eval was 84.7, which overstates a fresh eval.</text>
 <text data-box="640,1900" x="690" y="954" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16" fill="#6b7488" font-weight="400" text-anchor="start">Every fly-brain score passes through the same frozen connectome; only the readout differs.</text>
-<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-roboracer · fly-brain driver · 2026-09-28</text>
+<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-robotlab · fly-brain driver · 2026-09-28</text>
 </svg>

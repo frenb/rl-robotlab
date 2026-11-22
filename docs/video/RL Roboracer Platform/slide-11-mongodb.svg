@@ -77,7 +77,7 @@
 <rect x="690" y="900" width="1180" height="70" rx="10" fill="#10141d" stroke="#262d3d" stroke-width="1"/>
 <text data-box="640,1920" x="1280" y="932" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16.5" fill="#8a93a6" font-weight="400" text-anchor="middle">Every model records the git SHA, reward design and experiment design that produced it,</text>
 <text data-box="640,1920" x="1280" y="956" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16.5" fill="#8a93a6" font-weight="400" text-anchor="middle">so any result can be traced back to the exact code and settings.</text>
-<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-roboracer · platform overview · 2026-09-26</text>
+<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-robotlab · platform overview · 2026-09-26</text>
 <text data-box="40,600" x="70" y="150" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="15" fill="#6E8BFF" font-weight="700" text-anchor="start" letter-spacing="1.6">ARCHITECTURE · 3 OF 5</text>
 <text data-box="40,600" x="70" y="214" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="46" fill="#e6e9ef" font-weight="700" text-anchor="start">MongoDB is the shared</text>
 <text data-box="40,600" x="70" y="270" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="46" fill="#e6e9ef" font-weight="700" text-anchor="start">memory</text>

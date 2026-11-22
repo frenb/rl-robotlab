@@ -3,7 +3,7 @@
     Step 3, run as rltest: probe the running install with a set of models.
 
 .DESCRIPTION
-    Runs Invoke-ProbeEval.ps1 -Probe on rl-roboracer for each model, one
+    Runs Invoke-ProbeEval.ps1 -Probe on rl-robotlab for each model, one
     round of all models per run, copies results and transcripts to
     results\ after every probe, then shows the summary (step 4).
 
@@ -13,9 +13,9 @@
     key is not set are skipped.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-roboracer-test\3-Probe.ps1
+    powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-robotlab-test\3-Probe.ps1
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-roboracer-test\3-Probe.ps1 -Set local -Runs 3
+    powershell -ExecutionPolicy Bypass -File C:\Users\Public\rl-robotlab-test\3-Probe.ps1 -Set local -Runs 3
 #>
 [CmdletBinding()]
 param(
@@ -29,7 +29,7 @@ if ($env:USERNAME -ne 'rltest') { Write-Host "Warning: step 3 is meant for the r
 $stage = $PSScriptRoot
 $results = Join-Path $stage 'results'
 New-Item -ItemType Directory -Force $results | Out-Null
-$clone = Join-Path $env:USERPROFILE 'rl-roboracer\rl-roboracer'
+$clone = Join-Path $env:USERPROFILE 'rl-robotlab\rl-robotlab'
 if (-not (Test-Path $clone)) { throw "No install at $clone; run step 2 first." }
 $eval = Join-Path $stage 'installzero\agent\eval\Invoke-ProbeEval.ps1'
 if (-not (Test-Path $eval)) { throw "No probe staged in $stage\installzero; run step 1 again in your own account." }
@@ -59,13 +59,13 @@ $list = @($list | Where-Object {
 if (-not $list) { throw 'No models to run.' }
 
 $started = Get-Date
-Write-Host "Probing rl-roboracer: $($list -join ', '); $Runs run(s) each, started $started" -ForegroundColor Cyan
+Write-Host "Probing rl-robotlab: $($list -join ', '); $Runs run(s) each, started $started" -ForegroundColor Cyan
 foreach ($i in 1..$Runs) {
     foreach ($m in $list) {
         Write-Host ''
         Write-Host "=== Run $i of $Runs : $m ===" -ForegroundColor Cyan
         $modelArg = if ($m -match '^\w+:') { @('-Remote', $m) } else { @('-Model', $m) }
-        & powershell -ExecutionPolicy Bypass -File $eval -Repo rl-roboracer -Probe -Target $clone -NoDocs @modelArg
+        & powershell -ExecutionPolicy Bypass -File $eval -Repo rl-robotlab -Probe -Target $clone -NoDocs @modelArg
         Copy-Item "$env:LOCALAPPDATA\installzero\eval\*", "$env:LOCALAPPDATA\installzero\probe\*" $results -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

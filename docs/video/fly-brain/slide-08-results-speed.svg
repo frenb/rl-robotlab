@@ -28,7 +28,7 @@
 <text x="690" y="906" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16" fill="#6b7488" font-weight="400" text-anchor="start">Average speed over each episode. Mean of a fresh greedy eval, 10 trials of 5 episodes.</text>
 <text x="690" y="930" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16" fill="#6b7488" font-weight="400" text-anchor="start">Copied expert and fly_donut are the mean of two such evals. AWAC + BC trials ranged 3.45&#8211;3.90 m/s.</text>
 <text x="690" y="954" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16" fill="#6b7488" font-weight="400" text-anchor="start">Random actions are not shown: their evals did not record speed.</text>
-<text x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-roboracer &#183; fly-brain driver &#183; 2026-09-28</text>
+<text x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-robotlab &#183; fly-brain driver &#183; 2026-09-28</text>
 <text x="70" y="150" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="15" fill="#5BE37D" font-weight="700" text-anchor="start" letter-spacing="1.6">RESULTS &#183; SPEED</text>
 <text x="70" y="214" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="46" fill="#e6e9ef" font-weight="700" text-anchor="start">How fast does it</text>
 <text x="70" y="270" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="46" fill="#e6e9ef" font-weight="700" text-anchor="start">drive?</text>

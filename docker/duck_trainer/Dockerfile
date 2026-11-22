@@ -55,7 +55,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project
 
 COPY . .
-# pymongo is for the rl-roboracer job worker (rl_agent/duck), not microduck_rl; pytest runs
+# pymongo is for the rl-robotlab job worker (rl_agent/duck), not microduck_rl; pytest runs
 # its tests (rl_agent/duck/test_*.py).
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen \

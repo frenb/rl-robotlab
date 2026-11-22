@@ -101,7 +101,7 @@ scripts\install\
 
 Each phase first checks whether its work is already done, so the script can
 be re-run and can resume after the reboot. State lives in
-`%ProgramData%\rl-roboracer\install-state.json`; a full log goes to
+`%ProgramData%\rl-robotlab\install-state.json`; a full log goes to
 `install-<timestamp>.log` next to it.
 
 | # | Phase | Done when |
@@ -133,7 +133,7 @@ Details that matter:
   Docker Desktop and poll `docker info` for up to 5 minutes. If the account
   was just added to `docker-users`, stop and ask the user to sign out and
   back in, then resume.
-- **Phase 4.** Default location `%USERPROFILE%\rl-roboracer\rl-roboracer`,
+- **Phase 4.** Default location `%USERPROFILE%\rl-robotlab\rl-robotlab`,
   overridable with `-InstallDir`. Never overwrite an existing `.env`;
   generate a random 32-character Mongo password for a new one.
 - **Phase 5.** `docker compose build`, retried up to 6 times. Retries are

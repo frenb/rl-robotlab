@@ -7,7 +7,7 @@
     Run it in your own account. It writes to C:\Users\Public, which every
     account can read:
 
-      <StageDir>\rl-roboracer.bundle   the working tree as it is now,
+      <StageDir>\rl-robotlab.bundle   the working tree as it is now,
                                        including uncommitted and untracked
                                        files (not gitignored ones such as the
                                        env file), as branch "rltest". Made with a
@@ -59,7 +59,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$StageDir = 'C:\Users\Public\rl-roboracer-test',
+    [string]$StageDir = 'C:\Users\Public\rl-robotlab-test',
     [string]$DoctorAssetsDir = 'C:\Users\Public\doctor-assets',
     [string[]]$LocalModels = @('gemma', 'gpt-oss'),
     [string]$SourceAssets = '',
@@ -109,7 +109,7 @@ try {
     & git init --bare --quiet $bare 2>&1 | Out-Null
     & git -C $repo push --quiet $bare "${commit}:refs/heads/rltest" 2>&1 | Out-Null
     $pushed = $LASTEXITCODE
-    $bundle = Join-Path $StageDir 'rl-roboracer.bundle'
+    $bundle = Join-Path $StageDir 'rl-robotlab.bundle'
     & git -C $bare bundle create $bundle --all 2>&1 | Out-Null
     $bundled = $LASTEXITCODE
     $ErrorActionPreference = $oldEap
@@ -187,7 +187,7 @@ foreach ($d in $StageDir, $DoctorAssetsDir) {
 }
 
 Write-Host ''
-Write-Host 'Staged. Signed in as rltest, follow C:\Users\Public\rl-roboracer-test\RUN-TEST.md, or run the steps:' -ForegroundColor Green
+Write-Host 'Staged. Signed in as rltest, follow C:\Users\Public\rl-robotlab-test\RUN-TEST.md, or run the steps:' -ForegroundColor Green
 Write-Host "  powershell -ExecutionPolicy Bypass -File $StageDir\2-Update.ps1    (install or update, -Clients 2)"
 Write-Host "  powershell -ExecutionPolicy Bypass -File $StageDir\3-Probe.ps1     (probe; -Set compare|local|hosted|all, -Runs 2)"
 Write-Host "  powershell -ExecutionPolicy Bypass -File $StageDir\4-Results.ps1   (summary; -Facts for recall per fact)"

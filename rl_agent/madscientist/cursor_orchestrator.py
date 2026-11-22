@@ -49,7 +49,7 @@ CURSOR_AGENT_MODEL = os.environ.get(
 # Defaults match this codebase's public origin; override for forks /
 # private repos via the env var.
 CURSOR_TARGET_REPO = os.environ.get(
-    "CURSOR_TARGET_REPO", "frenb/rl-roboracer")
+    "CURSOR_TARGET_REPO", "frenb/rl-robotlab")
 
 # Branch base name (the rest is appended per proposal). Cursor agents
 # create branches with this prefix off main.
@@ -93,7 +93,7 @@ def _import_cursor_sdk():
 # ---- Implementation prompt builder ---------------------------------------
 
 
-_IMPLEMENTATION_PROMPT_TEMPLATE = """You are implementing experiment-design SCHEMA additions for the rl-roboracer codebase, on behalf of the MadScientist autonomous research agent.
+_IMPLEMENTATION_PROMPT_TEMPLATE = """You are implementing experiment-design SCHEMA additions for the rl-robotlab codebase, on behalf of the MadScientist autonomous research agent.
 
 Proposal ID: {proposal_id}
 Proposal title: {title}

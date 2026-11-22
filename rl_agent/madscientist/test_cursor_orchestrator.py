@@ -232,7 +232,7 @@ def test_happy_path_pr_url_on_result():
     db = _db()
     p = _insert_proposal_with_extensions(db)
     fake_sdk = _make_fake_sdk(
-        result_pr_url="https://github.com/frenb/rl-roboracer/pull/123",
+        result_pr_url="https://github.com/frenb/rl-robotlab/pull/123",
         transcript=["agent says hello", "agent edits SCHEMA", "agent opens PR"])
     res = cursor_orchestrator.spawn_cursor_agent_for_proposal(
         db, p,
@@ -244,7 +244,7 @@ def test_happy_path_pr_url_on_result():
         f"got {res['status']}, error={res.get('error')}")
     _expect(
         "pr_url extracted from result attribute",
-        lambda: res["pr_url"] == "https://github.com/frenb/rl-roboracer/pull/123")
+        lambda: res["pr_url"] == "https://github.com/frenb/rl-robotlab/pull/123")
     _expect(
         "branch_name returned",
         lambda: res["branch_name"].startswith("xp-"))
@@ -272,7 +272,7 @@ def test_pr_url_from_transcript():
         result_pr_url=None,
         transcript=[
             "implementing the SCHEMA addition...",
-            "opened PR: https://github.com/frenb/rl-roboracer/pull/456",
+            "opened PR: https://github.com/frenb/rl-robotlab/pull/456",
             "done.",
         ])
     res = cursor_orchestrator.spawn_cursor_agent_for_proposal(
@@ -281,7 +281,7 @@ def test_pr_url_from_transcript():
         sdk_import=lambda: fake_sdk)
     _expect(
         "PR URL extracted from transcript",
-        lambda: res["pr_url"] == "https://github.com/frenb/rl-roboracer/pull/456")
+        lambda: res["pr_url"] == "https://github.com/frenb/rl-robotlab/pull/456")
 
 
 def test_cursor_error_on_send():
@@ -369,7 +369,7 @@ def test_orchestrator_dispatch_to_cursor():
         calls.append(_proposal["_id"])
         return {
             "status": "finished",
-            "pr_url": "https://github.com/frenb/rl-roboracer/pull/789",
+            "pr_url": "https://github.com/frenb/rl-robotlab/pull/789",
             "branch_name": "xp-fake/auto",
             "agent_id": "fake",
             "run_id": "fake",
@@ -389,7 +389,7 @@ def test_orchestrator_dispatch_to_cursor():
         f"status={res['status']}")
     _expect(
         "implementation_pr_url stamped",
-        lambda: res.get("implementation_pr_url") == "https://github.com/frenb/rl-roboracer/pull/789")
+        lambda: res.get("implementation_pr_url") == "https://github.com/frenb/rl-robotlab/pull/789")
     _expect(
         "implementation_branch stamped",
         lambda: res.get("implementation_branch") == "xp-fake/auto")

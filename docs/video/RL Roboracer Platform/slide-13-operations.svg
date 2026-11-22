@@ -58,7 +58,7 @@
 <rect x="790" y="828" width="239.2" height="32" rx="7" fill="#0b0f16" stroke="#262d3d" stroke-width="1"/>
 <text data-box="640,1920" x="804" y="850" font-family="Consolas, 'SF Mono', Menlo, monospace" font-size="16" fill="#FFD933" font-weight="400" text-anchor="start" xml:space="preserve">.\scripts\Watchdog.ps1</text>
 <text data-box="640,1920" x="790" y="888" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16.5" fill="#8a93a6" font-weight="400" text-anchor="start">On a wedge: pause, restart the stack, resume from the checkpoint.</text>
-<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-roboracer · platform overview · 2026-09-26</text>
+<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-robotlab · platform overview · 2026-09-26</text>
 <text data-box="40,600" x="70" y="150" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="15" fill="#6E8BFF" font-weight="700" text-anchor="start" letter-spacing="1.6">ARCHITECTURE · 5 OF 5</text>
 <text data-box="40,600" x="70" y="214" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="46" fill="#e6e9ef" font-weight="700" text-anchor="start">Running the stack</text>
 <circle cx="76" cy="284" r="4" fill="#8a93a6"/>

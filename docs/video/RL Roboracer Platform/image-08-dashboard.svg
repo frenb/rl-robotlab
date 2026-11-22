@@ -127,5 +127,5 @@
 <text data-box="640,1920" x="1174.8" y="965" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17" fill="#e6e9ef" font-weight="400" text-anchor="middle">938 leaderboard scores</text>
 <rect x="1312" y="940" width="238.4" height="38" rx="19" fill="#161b27" stroke="#262d3d" stroke-width="1"/>
 <text data-box="640,1920" x="1431.2" y="965" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17" fill="#e6e9ef" font-weight="400" text-anchor="middle">Watchdog auto-recovery</text>
-<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-roboracer · platform overview · 2026-09-28</text>
+<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-robotlab · platform overview · 2026-09-28</text>
 </svg>

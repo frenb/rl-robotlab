@@ -3121,7 +3121,7 @@
 <line x1="1068" y1="812" x2="1106" y2="812" stroke="#5BE37D" stroke-width="2" marker-end="url(#arrL)" stroke-linecap="round"/>
 <line x1="1454" y1="812" x2="1492" y2="812" stroke="#8a93a6" stroke-width="2" marker-end="url(#arr)" stroke-linecap="round"/>
 <path d="M 1666 542 V 570 H 894 V 596" fill="none" stroke="#8a93a6" stroke-width="2" marker-end="url(#arr)" stroke-linecap="round" stroke-linejoin="round"/>
-<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-roboracer · fly-brain driver · 2026-09-28</text>
+<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-robotlab · fly-brain driver · 2026-09-28</text>
 <text data-box="40,600" x="70" y="150" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="15" fill="#5BE37D" font-weight="700" text-anchor="start" letter-spacing="1.6">THE FLY BRAIN DRIVER</text>
 <text data-box="40,600" x="70" y="214" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="46" fill="#e6e9ef" font-weight="700" text-anchor="start">A real fly's brain,</text>
 <text data-box="40,600" x="70" y="270" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="46" fill="#e6e9ef" font-weight="700" text-anchor="start">driving a race car</text>

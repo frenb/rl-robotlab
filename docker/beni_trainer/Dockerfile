@@ -45,7 +45,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --group export --group dev
 
 COPY . .
-# pymongo + pytest for the rl-roboracer job worker (rl_agent/openbeni);
+# pymongo + pytest for the rl-robotlab job worker (rl_agent/openbeni);
 # onnx for validate_onnx in mjlab_core.worker (dev group already has onnxruntime).
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --group export --group dev \

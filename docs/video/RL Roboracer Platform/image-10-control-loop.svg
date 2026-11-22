@@ -73,5 +73,5 @@
 <text data-box="1670,1870" x="1770" y="852" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="15" fill="#e6e9ef" font-weight="400" text-anchor="middle">SAC update on GPU</text>
 <rect x="690" y="930" width="1180" height="50" rx="10" fill="#10141d" stroke="#262d3d" stroke-width="1"/>
 <text data-box="640,1920" x="1280" y="962" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17" fill="#8a93a6" font-weight="400" text-anchor="middle">10 steps a second per gym · up to 4 gyms in parallel · fly courses run 1</text>
-<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-roboracer · platform overview · 2026-09-26</text>
+<text data-box="640,1900" x="1880" y="1056" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6b7488" font-weight="400" text-anchor="end">rl-robotlab · platform overview · 2026-09-26</text>
 </svg>
