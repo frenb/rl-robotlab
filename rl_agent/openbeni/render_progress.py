@@ -9,6 +9,7 @@ if _RL_AGENT not in sys.path:
 from mjlab_core import render_progress as _core  # noqa: E402
 from mjlab_core.render_progress import CHECKPOINT_SETTLE_S, WATCH_POLL_S, watch  # noqa: E402,F401
 from openbeni import launch  # noqa: E402
+from openbeni.jumps import director  # noqa: E402
 
 
 class ClipRenderer(_core.ClipRenderer):
@@ -17,7 +18,7 @@ class ClipRenderer(_core.ClipRenderer):
             task_id, seconds, device,
             camera=launch.CAMERA, clip_size=launch.CLIP_SIZE,
             clip_dir=launch.CLIP_DIR, unity_tasks=launch.CONFIG.unity_tasks,
-            register_modules=("beni_rl",),
+            register_modules=("beni_rl",), director=director,
         )
 
 
@@ -26,7 +27,7 @@ def main():
         camera=launch.CAMERA, clip_size=launch.CLIP_SIZE, clip_dir=launch.CLIP_DIR,
         default_seconds=launch.DEFAULTS["seconds_per_checkpoint"],
         unity_tasks=launch.CONFIG.unity_tasks,
-        register_modules=("beni_rl",),
+        register_modules=("beni_rl",), director=director,
     )
 
 

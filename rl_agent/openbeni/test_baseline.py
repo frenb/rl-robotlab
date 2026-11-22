@@ -24,18 +24,30 @@ class FakeModels:
         doc.update(update["$set"])
 
 
-def test_seed_registers_the_checkpoint_once(tmp_path):
-    ckpt = tmp_path / "policy.pt"
-    ckpt.write_bytes(b"x")
+def test_seed_canonicalizes_upstream_policy(tmp_path):
+    upstream = tmp_path / "policy.pt"
+    upstream.write_bytes(b"x" * 16)
     db = NS(models=FakeModels())
-    assert baseline.seed(db, NOW, checkpoint=ckpt) == [str(ckpt)]
-    assert baseline.seed(db, NOW, checkpoint=ckpt) == [str(ckpt)]
+    canonical = tmp_path / "model_15000.pt"
+    assert baseline.seed(db, NOW, checkpoint=upstream) == [str(canonical)]
+    assert canonical.is_file()
+    assert canonical.read_bytes() == upstream.read_bytes()
+    assert baseline.seed(db, NOW, checkpoint=upstream) == [str(canonical)]
     assert len(db.models.docs) == 1
-    doc = db.models.docs[("openbeni", str(ckpt))]
+    doc = db.models.docs[("openbeni", str(canonical))]
     assert "job_id" not in doc
     assert doc["task_id"] == "Beni-Jump-Flat"
     assert doc["training_iterations"] == 15000
     assert doc["create_date"] == NOW
+    assert doc["location"] == str(canonical)
+
+
+def test_seed_keeps_already_canonical_name(tmp_path):
+    ckpt = tmp_path / "model_15000.pt"
+    ckpt.write_bytes(b"y")
+    db = NS(models=FakeModels())
+    assert baseline.seed(db, NOW, checkpoint=ckpt) == [str(ckpt)]
+    assert list(tmp_path.iterdir()) == [ckpt]
 
 
 def test_missing_checkpoint_registers_nothing(tmp_path):

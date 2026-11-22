@@ -35,7 +35,7 @@ INIT_NONE = "none"
 INIT_MODEL = "model:"
 INHERITED = ("gym", "reward_design_id", "experiment_design_id", "budget")
 STAGE_KEYS = {"id", "name", "kind", "gym", "reward_design_id", "experiment_design_id", "budget",
-              "settings", "init", "carry", "gate", "on_fail"}
+              "settings", "init", "carry", "gate", "on_fail", "eval"}
 MAX_STAGES = 32
 
 
@@ -124,6 +124,31 @@ def _on_fail(raw, budget, where, problems):
         problems.append(f"{where}: on_fail.extra_budget must be a positive whole number")
         extra = budget
     return {"retries": retries, "extra_budget": extra}
+
+
+def _eval(raw, where, problems):
+    """Gate-eval overrides; not inherited, since each stage tests its own skill."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        problems.append(f"{where}: eval must be an object")
+        return {}
+    out = {}
+    for key in sorted(set(raw) - {"fallen_probability"}):
+        problems.append(f"{where}: unknown eval option {key!r} (known: ['fallen_probability'])")
+    if raw.get("fallen_probability") is not None:
+        value = raw["fallen_probability"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+            problems.append(f"{where}: eval.fallen_probability must be a number from 0 to 1")
+        else:
+            out["fallen_probability"] = float(value)
+    return out
+
+
+def _task_of(stage, context):
+    """The task a stage trains, when its gym is known (None without gym context)."""
+    gym = (context.get("gyms") or {}).get(str(stage.get("gym")))
+    return (gym.get("task_id") or str(stage["gym"])) if gym else None
 
 
 def _check_refs(stage, robot_id, context, where, problems):
@@ -267,6 +292,18 @@ def validate(doc, robot, context=None):
             if key not in stage_settings:
                 problems.append(f"{where}: {robot_id} has no stage setting {key!r}"
                                 + (f" (it has {sorted(stage_settings)})" if stage_settings else ""))
+                continue
+            spec = stage_settings[key] if isinstance(stage_settings[key], dict) else {}
+            value = settings[key]
+            if spec.get("type") == "number":
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    problems.append(f"{where}: stage setting {key!r} must be a number")
+                elif spec.get("integer") and not float(value).is_integer():
+                    problems.append(f"{where}: stage setting {key!r} must be a whole number")
+                elif (spec.get("min") is not None and value < spec["min"]) or \
+                        (spec.get("max") is not None and value > spec["max"]):
+                    problems.append(f"{where}: stage setting {key!r} must be from "
+                                    f"{spec.get('min')} to {spec.get('max')}")
         stage["settings"] = {**(prev["settings"] if prev else {}), **settings}
 
         init = raw.get("init") or (INIT_NONE if i == 0 else INIT_PREVIOUS)
@@ -281,7 +318,14 @@ def validate(doc, robot, context=None):
         same_gym = prev is not None and prev["gym"] == stage["gym"]
         same_reward = prev is not None and prev["reward_design_id"] == stage["reward_design_id"]
         stage["carry"] = _carry(raw.get("carry"), cap, init, same_gym, same_reward, where, problems)
+        if init == INIT_PREVIOUS and prev is not None and cap.get("carry_same_task"):
+            before, now = _task_of(prev, context), _task_of(stage, context)
+            if before and now and before != now:
+                problems.append(f"{where}: starts from the previous stage's checkpoint, but that stage "
+                                f"trains {before} and this one trains {now}; {robot_id} can only "
+                                "warm-start within one task. Set init to 'none'")
         stage["gate"] = _gate(raw.get("gate"), cap, where, problems)
+        stage["eval"] = _eval(raw.get("eval"), where, problems)
         stage["on_fail"] = _on_fail(raw.get("on_fail"), stage["budget"], where, problems)
         if stage["on_fail"]["retries"] and not stage["gate"]:
             problems.append(f"{where}: on_fail.retries needs a gate (without one the stage always passes)")

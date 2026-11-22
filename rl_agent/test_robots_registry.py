@@ -67,6 +67,28 @@ supports:
     assert loaded[0]["export_formats"] == ["onnx", "mnn"]
 
 
+def test_simple_yaml_parser_reads_wrapped_inline_maps():
+    text = """
+curriculum:
+  stage_settings:
+    push_force_max: {type: number, min: 0, max: 200, unit: N,
+                     doc: "Largest push, in [-max, max]"}  # wraps
+    push_duration_s: {type: number, min: 0.002}
+  carry: [weights,
+          optimizer]
+"""
+    assert robots_registry._parse_simple_yaml(text) == {"curriculum": {
+        "stage_settings": {
+            "push_force_max": {"type": "number", "min": 0, "max": 200, "unit": "N",
+                               "doc": "Largest push, in [-max, max]"},
+            "push_duration_s": {"type": "number", "min": 0.002},
+        },
+        "carry": ["weights", "optimizer"],
+    }}
+    with pytest.raises(robots_registry.RobotManifestError, match="unclosed"):
+        robots_registry._parse_simple_yaml("a: {b: 1,\n")
+
+
 def test_validate_rejects_missing_capability():
     bad = {
         "id": "foo", "display_name": "Foo", "morphology": "quadruped",

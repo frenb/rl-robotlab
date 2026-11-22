@@ -64,7 +64,7 @@ from . import pre_rubric_checks
 
 # ---- Configuration -------------------------------------------------------
 
-RESEARCHER_MODEL = os.environ.get("RESEARCHER_MODEL", "claude-opus-4-7")
+RESEARCHER_MODEL = os.environ.get("RESEARCHER_MODEL", "claude-opus-5-5")
 
 # Same pricing constants as Judge. Tunable via env if pricing changes.
 _RESEARCHER_INPUT_USD_PER_MTOK = 15.0
@@ -311,7 +311,7 @@ def fetch_budget_status(
 # ---- Prompt builders -----------------------------------------------------
 
 
-_RESEARCHER_SYSTEM_PROMPT = """You are the MadScientist Researcher agent. Your job is to draft ONE experiment proposal for the rl-roboracer codebase based on:
+_RESEARCHER_SYSTEM_PROMPT = """You are the MadScientist Researcher agent. Your job is to draft ONE experiment proposal for the rl-robotlab codebase based on:
   * recent papers from arxiv
   * what's already been tried (existing experiment_designs, reward_designs, top past models)
   * the project's research goals: improve a Unity-rendered autonomous-driving RL agent that mixes BC pretraining with online SAC

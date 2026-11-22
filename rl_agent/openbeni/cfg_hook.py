@@ -10,8 +10,10 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import experiment_design  # noqa: E402
 import reward_design  # noqa: E402
+from mjlab_core import stage_settings  # noqa: E402
 
 DESIGN_ENV = "OPENBENI_REWARD_DESIGN"
 EXPERIMENT_ENV = "OPENBENI_EXPERIMENT_DESIGN"
@@ -57,6 +59,19 @@ def apply(task_id, env_cfg, play=False):
         changed = experiment_design.apply_env(fields, env_cfg)
         print(f"[experiment_design] {task_id}: env from {doc.get('name')!r} v{doc.get('version')}: "
               f"{', '.join(changed) or 'no changes'}", flush=True)
+    settings = stage_settings.from_env()
+    if settings and not play:
+        changed = stage_settings.apply(env_cfg, settings)
+        print(f"[stage_settings] {task_id}: {', '.join(changed) or 'no changes'}", flush=True)
+        push = (env_cfg.events or {}).get(stage_settings.PUSH_EVENT)
+        if push is not None:
+            p = push.params
+            print(f"[stage_settings]   push: force {p['force_range']} N, torque {p['torque_range']} N*m, "
+                  f"duration {p['duration_s']} s, every {p['cooldown_s']} s", flush=True)
+        gate = getattr((env_cfg.commands or {}).get(stage_settings.JUMP_COMMAND), "recovery_gate", None)
+        if gate is not None:
+            print(f"[stage_settings]   jumps start after {gate.consecutive_passes} recovery check(s) in a row "
+                  f"at >= {gate.success_rate:.0%}, or by update {gate.force_jump_after_updates}", flush=True)
 
 
 def apply_agent(task_id, agent_cfg):

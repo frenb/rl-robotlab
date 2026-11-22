@@ -13,6 +13,10 @@ Run documents (``curriculum_runs``)::
     generation    manual retries of the run (the dashboard's Retry), part of job keys
     pending       {key, role: train | eval, job_id, train_job_id, stage_index, attempt}
     results       one entry per finished attempt, with metrics and gate details
+
+Skipping a missed gate (the dashboard's Skip) marks that stage's last result
+``skipped`` and moves the run to the next stage, which then starts from the
+skipped attempt's checkpoint as if it had passed.
 """
 import datetime
 
@@ -159,6 +163,7 @@ class Runner:
             "curriculum_name": run.get("curriculum_name"),
             "curriculum_stage_index": run["stage_index"],
             "curriculum_stage_id": run["stages"][run["stage_index"]]["id"],
+            "curriculum_stage_name": run["stages"][run["stage_index"]]["name"],
             "curriculum_attempt": run.get("attempt", 0),
             "curriculum_role": role,
         })
@@ -195,7 +200,7 @@ class Runner:
             return None, None, []
         if init == model.INIT_PREVIOUS:
             done = [r for r in run.get("results") or []
-                    if r["stage_index"] == run["stage_index"] - 1 and r["passed"]]
+                    if r["stage_index"] == run["stage_index"] - 1 and (r["passed"] or r.get("skipped"))]
             if not done or not done[-1].get("checkpoint"):
                 raise RuntimeError("the previous stage left no checkpoint to start from")
             return done[-1]["train_job_id"], done[-1]["checkpoint"], carry
@@ -247,7 +252,10 @@ class Runner:
             "task_id": train_job.get("task_id"),
             "source_job_id": str(train_job["_id"]),
             "checkpoint": checkpoint,
+            "stage_settings": dict(stage.get("settings") or {}),
         }
+        if (stage.get("eval") or {}).get("fallen_probability") is not None:
+            doc["eval_fallen_probability"] = stage["eval"]["fallen_probability"]
         return self._queue(run, "eval", doc, {"train_job_id": str(train_job["_id"])})
 
 

@@ -35,15 +35,46 @@ supports:
 
 # Curriculum builder (rl_agent/curriculum). A stage's warm start passes
 # --agent.resume, which restores the whole rsl_rl runner state, so carry is
-# all of these or none (carry_atomic). Gates read an EVAL job's eval_results.
+# all of these or none (carry_atomic). mjlab only resumes runs from the task's
+# own log folder, and Beni-Jump-Flat has more observations than
+# Beni-Velocity-Flat, so warm starts stay within one task (carry_same_task).
+# Gates read an EVAL job's eval_results.
 curriculum:
   enabled: true
   budget_field: max_iterations
   checkpoint_field: openbeni_checkpoint
   carry: [weights, optimizer, entropy, normalizer]
   carry_atomic: true
+  carry_same_task: true
   early_stop: false
-  gate_metrics: [fall_rate, mean_return, mean_episode_length, mean_reward_per_step]
+  # jump_* come from OpenBeni's jump trials (rl_agent/openbeni/jumps.py) and
+  # only exist on Beni-Jump-Flat evals.
+  gate_metrics: [fall_rate, mean_return, mean_episode_length, mean_reward_per_step, jump_takeoff_rate, jump_landing_rate, jump_success_rate, jump_heading_landing_rate, jump_median_clearance_m]
+  # Applied by rl_agent/mjlab_core/stage_settings.py in training, the stage's
+  # gate eval and its clips. Settings carry over to later stages unless reset.
+  # Beni weighs about 1.7 kg; the task default push is 20 N for 0.01 s every
+  # 2-4 s (about 0.1 m/s of shove).
+  stage_settings:
+    push_force_max: {type: number, min: 0, max: 200, unit: N,
+                     doc: "Largest push force per axis, sampled in [-max, max]"}
+    push_torque_max: {type: number, min: 0, max: 20, unit: N*m,
+                      doc: "Largest push torque per axis, sampled in [-max, max]"}
+    push_duration_s: {type: number, min: 0.002, max: 0.5, unit: s,
+                      doc: "How long each push is held"}
+    push_interval_min_s: {type: number, min: 0.1, max: 60, unit: s,
+                          doc: "Shortest quiet time between pushes"}
+    push_interval_max_s: {type: number, min: 0.1, max: 60, unit: s,
+                          doc: "Longest quiet time between pushes"}
+    # OpenBeni's trainer turns jump training on itself: after its recovery
+    # check passes enough times in a row, or at a fixed update count. The
+    # count is total updates and carries across warm-started stages, so 1
+    # turns jumps on at the first update of the stage that sets it.
+    jump_start_by_update: {type: number, integer: true, min: 1, max: 1000000, unit: updates,
+                           doc: "Turn jump training on by this total update count even if the recovery check hasn't passed (task default 9000; 1 = from this stage's start)"}
+    jump_recovery_pass_rate: {type: number, min: 0.5, max: 1,
+                              doc: "Share of trials every fall category must recover from for a recovery check to pass (task default 0.8)"}
+    jump_recovery_passes: {type: number, integer: true, min: 1, max: 10,
+                           doc: "Recovery checks in a row that must pass before jump training turns on (task default 2)"}
 
 assets:
   urdf: third_party/open-beni/assets/beni_base/urdf/beni.urdf

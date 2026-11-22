@@ -23,6 +23,7 @@ if str(_RL_AGENT) not in sys.path:
 
 import job_queue  # noqa: E402
 from mjlab_core import launch as core_launch  # noqa: E402
+from mjlab_core import stage_settings  # noqa: E402
 from specs import spec as reward_spec  # noqa: E402
 
 DESIGN_FIELDS = ("reward_design_id", "reward_design_name", "reward_design_version", "reward_design_code")
@@ -391,16 +392,84 @@ class MjlabWorker:
         legacy = [v for v in job.get("videos") or [] if "gif" not in v]
         return legacy + core_launch.checkpoint_clips(run_dirs, clip_dir=self.cfg.launch_cfg.clip_dir)
 
+    def clip_dir_for(self, run_dir):
+        return pathlib.Path(run_dir) / self.cfg.launch_cfg.clip_dir
+
     def start_clipper(self, job, run_dir, extra_env, log):
         argv = core_launch.clip_watch_command(job, run_dir, self.cfg.render_progress_script, self.cfg.launch_cfg)
-        clip_dir = pathlib.Path(run_dir) / self.cfg.launch_cfg.clip_dir
+        clip_dir = self.clip_dir_for(run_dir)
         clip_dir.mkdir(parents=True, exist_ok=True)
         log.write(f"[{self.cfg.tag}] checkpoint clips: $ {' '.join(argv)}\n")
         with open(clip_dir / "render.log", "a") as out:
-            return subprocess.Popen(argv, cwd=self.cfg.workdir, env={**os.environ, **extra_env},
+            proc = subprocess.Popen(argv, cwd=self.cfg.workdir, env={**os.environ, **extra_env},
                                     stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        (clip_dir / "watcher.pid").write_text(str(proc.pid), encoding="utf-8")
+        return proc
+
+    def stop_clip_watchers(self, run_dirs, log, known=None):
+        """Stop the job's clipper and any orphan watcher for the same run dirs.
+
+        Manual restarts (or a failed ``stop_process``) used to leave a watcher
+        racing the end-of-job stitch on ``clip_N``; kill by pid file and by
+        ``--watch <run_dir>`` cmdline before rendering.
+        """
+        for proc in known or ():
+            if proc is not None:
+                self.stop_process(proc)
+        script = str(self.cfg.render_progress_script)
+        targets = {str(pathlib.Path(run_dir).resolve()) for run_dir in run_dirs}
+        pids = set()
+        for run_dir in run_dirs:
+            pid_file = self.clip_dir_for(run_dir) / "watcher.pid"
+            try:
+                pids.add(int(pid_file.read_text(encoding="utf-8").strip()))
+            except (OSError, ValueError):
+                pass
+        proc_root = pathlib.Path("/proc")
+        if proc_root.is_dir():
+            for entry in proc_root.iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    cmdline = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+                except OSError:
+                    continue
+                if script not in cmdline or "--watch" not in cmdline:
+                    continue
+                if any(run_dir in cmdline for run_dir in targets):
+                    pids.add(int(entry.name))
+        for pid in sorted(pids):
+            try:
+                os.killpg(pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError, OSError):
+                    continue
+            log.write(f"[{self.cfg.tag}] stopped clip watcher pid={pid}\n")
+            deadline = time.time() + min(self.cfg.stop_grace_s, 10.0)
+            while time.time() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.2)
+            else:
+                try:
+                    os.killpg(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+        for run_dir in run_dirs:
+            try:
+                (self.clip_dir_for(run_dir) / "watcher.pid").unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def render_videos(self, job, source, run_dirs, log, every_checkpoint, progression):
+        self.stop_clip_watchers(run_dirs, log)
         found = core_launch.checkpoints(run_dirs)
         if not found:
             raise RuntimeError(f"job {source['_id']} has no checkpoints to render")
@@ -415,7 +484,8 @@ class MjlabWorker:
                 self.cfg.render_progress_script, self.cfg.launch_cfg,
                 clips=missing, progression=[p for _, p in picked], out_mp4=out_mp4)
             outcome, rc, tail = self.run_process(
-                job["_id"], argv, log, self.checkpoint_design_env(job["_id"], last_checkpoint))
+                job["_id"], argv, log, {**self.checkpoint_design_env(job["_id"], last_checkpoint),
+                                        **stage_settings.env_for(source)})
             if outcome == "pause":
                 self.update_job(job["_id"], status="PAUSED")
             if outcome != "finished":
@@ -486,8 +556,9 @@ class MjlabWorker:
         state = {"run_dir": None, "checkpoint": latest, "last_write": 0.0, "progress": {},
                  "videos": None, "clipper": None}
         name = core_launch.run_name(job, attempt)
-        render_env = (core_launch.design_env(lcfg, experiment_design_file=experiment_file, train=False)
-                      if experiment_file else {})
+        render_env = {**(core_launch.design_env(lcfg, experiment_design_file=experiment_file, train=False)
+                         if experiment_file else {}),
+                      **stage_settings.env_for(job)}
 
         def on_line(line):
             state["progress"].update(core_launch.parse_progress(line))
@@ -530,8 +601,8 @@ class MjlabWorker:
             try:
                 outcome, rc, tail = self.run_process(job_id, argv, log, extra_env, on_line, on_tick)
             finally:
-                if state["clipper"] is not None:
-                    self.stop_process(state["clipper"])
+                self.stop_clip_watchers(run_dirs, log, known=[state["clipper"]])
+                state["clipper"] = None
             state["last_write"] = 0.0
             on_tick()
             if outcome == "pause":
@@ -566,7 +637,15 @@ class MjlabWorker:
         clips = bool(core_launch.setting(job, "video", lcfg.defaults))
         progress = bool(job.get("progress_video"))
         if outcome == "finished" and (clips or progress):
-            self.render_videos(job, job, run_dirs, log, every_checkpoint=clips, progression=progress)
+            try:
+                self.render_videos(job, job, run_dirs, log, every_checkpoint=clips, progression=progress)
+            except Exception as exc:  # noqa: BLE001
+                # Training (and the checkpoint) already succeeded; don't fail the
+                # job / curriculum because a progress-video stitch raced or OOMed.
+                log.write(f"[{self.cfg.tag}] video render failed after training "
+                          f"(checkpoint kept): {exc}\n")
+                self.update_job(job_id, videos=self.job_videos(job, run_dirs),
+                                video_error=str(exc)[:500])
 
     def run_video(self, job, log):
         source = self.resolve_source_job(job)
@@ -589,7 +668,8 @@ class MjlabWorker:
         checkpoint = self.resolve_checkpoint(job)
         out_json = self.cfg.job_log_dir / f"{job['_id']}.eval.json"
         argv = core_launch.eval_command(job, checkpoint, out_json, self.cfg.evaluate_script, self.cfg.launch_cfg)
-        outcome, rc, tail = self.run_process(job["_id"], argv, log, self.checkpoint_design_env(job["_id"], checkpoint))
+        outcome, rc, tail = self.run_process(job["_id"], argv, log, {
+            **self.checkpoint_design_env(job["_id"], checkpoint), **stage_settings.env_for(job)})
         if outcome == "pause":
             self.update_job(job["_id"], status="PAUSED")
         if outcome != "finished":

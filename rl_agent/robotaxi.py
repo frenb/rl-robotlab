@@ -3772,6 +3772,8 @@ def main(
             max_avg_return = max(current_avg_return, max_avg_return)
             returns.append([current_avg_return])
             is_new_max_avg = (current_avg_return + 1e-5) > max_avg_return
+            # The dashboard's runs list reads mean_reward, as the mjlab workers write it.
+            update_job(job_id, float(current_avg_return), "mean_reward")
 
             saved_checkpoint = False
             if step >= min_write_step and is_new_max_avg: # step % write_policy_interval == 0

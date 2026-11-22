@@ -25,7 +25,10 @@ def manifest(rid, engine="mjlab_rsl_rl", **curriculum):
 BENI = manifest("openbeni", enabled=True, budget_field="max_iterations",
                 checkpoint_field="openbeni_checkpoint",
                 carry=["weights", "optimizer", "entropy", "normalizer"], carry_atomic=True,
-                gate_metrics=["fall_rate", "mean_return"])
+                gate_metrics=["fall_rate", "mean_return"],
+                stage_settings={"push_force_max": {"type": "number", "min": 0, "max": 200},
+                                "jump_start_by_update": {"type": "number", "integer": True, "min": 1},
+                                "jump_recovery_pass_rate": {"type": "number", "min": 0.5, "max": 1}})
 CAR = manifest("roboracer", engine="tf_agents_unity", enabled=True, budget_field="num_iterations",
                checkpoint_field="learner_dir", carry=["weights", "optimizer", "entropy", "replay"])
 OFF = manifest("microduck", enabled=False, budget_field="max_iterations")
@@ -76,6 +79,17 @@ def test_valid_curriculum_resolves_inheritance_and_default_carry():
     assert s2["carry"] == ["weights", "optimizer", "entropy", "normalizer"]
     assert s2["on_fail"] == {"retries": 1, "extra_budget": 50}
     assert s1["on_fail"] == {"retries": 0, "extra_budget": 100}
+
+
+def test_eval_overrides_are_per_stage_and_checked():
+    doc = beni_curriculum()
+    doc["stages"][0]["eval"] = {"fallen_probability": 0}
+    s1, s2 = model.validate(doc, BENI, CONTEXT)["stages"]
+    assert s1["eval"] == {"fallen_probability": 0.0}
+    assert s2["eval"] == {}, "eval overrides are not inherited"
+    doc["stages"][0]["eval"] = {"fallen_probability": 2, "colour": 1}
+    msg = problems(doc)
+    assert "fallen_probability must be a number from 0 to 1" in msg and "unknown eval option 'colour'" in msg
 
 
 def test_explicit_null_design_overrides_inheritance():
@@ -162,6 +176,49 @@ def test_unknown_stage_settings_and_fields():
     doc["stages"][0]["colour"] = "red"
     msg = problems(doc)
     assert "no stage setting 'cmd_lin_vel_x_max'" in msg and "unknown fields ['colour']" in msg
+
+
+def test_whole_number_stage_settings():
+    doc = beni_curriculum()
+    doc["stages"][0]["settings"] = {"jump_start_by_update": 1.5}
+    assert "'jump_start_by_update' must be a whole number" in problems(doc)
+
+
+def test_stage_setting_values_are_range_checked_and_reach_both_jobs():
+    doc = beni_curriculum()
+    doc["stages"][0]["settings"] = {"push_force_max": 500}
+    assert "'push_force_max' must be from 0 to 200" in problems(doc)
+    doc["stages"][0]["settings"] = {"push_force_max": "hard"}
+    assert "'push_force_max' must be a number" in problems(doc)
+
+    doc["stages"][0]["settings"] = {"push_force_max": 30}
+    store = FakeStore()
+    runner = start(store, doc)
+    runner.tick()
+    train = pending_job(store)
+    assert train["stage_settings"] == {"push_force_max": 30}
+    finish(store, train, openbeni_checkpoint="/logs/run1/model_99.pt")
+    runner.tick()
+    assert pending_job(store)["stage_settings"] == {"push_force_max": 30}
+
+
+def test_same_task_robots_cannot_warm_start_across_tasks():
+    beni = copy.deepcopy(BENI)
+    beni["curriculum"]["carry_same_task"] = True
+    context = copy.deepcopy(CONTEXT)
+    context["gyms"]["openbeni:Beni-Jump-Flat"]["task_id"] = "Beni-Jump-Flat"
+    msg = problems(beni_curriculum(), beni, context)
+    assert "trains openbeni:Beni-Velocity-Flat and this one trains Beni-Jump-Flat" in msg
+    assert "Set init to 'none'" in msg
+
+    fresh = beni_curriculum()
+    fresh["stages"][1]["init"] = "none"
+    assert model.validate(fresh, beni, context)["stages"][1]["carry"] == []
+    same = beni_curriculum()
+    same["stages"][1]["gym"] = "openbeni:Beni-Velocity-Flat"
+    assert model.validate(same, beni, context)["stages"][1]["init"] == "previous"
+    assert model.validate(beni_curriculum(), beni, {})["stages"][1]["init"] == "previous", \
+        "without gym context the tasks are unknown"
 
 
 def test_start_stage():
@@ -275,6 +332,7 @@ def test_happy_path_chains_train_eval_and_warm_starts():
     e1 = pending_job(store)
     assert e1["job_type"] == "EVAL" and e1["checkpoint"] == "/logs/run1/model_99.pt"
     assert e1["source_job_id"] == t1["_id"]
+    assert "eval_fallen_probability" not in e1
 
     finish(store, e1, eval_results={"fall_rate": 0.01, "mean_return": 3})
     runner.tick()
@@ -292,6 +350,17 @@ def test_happy_path_chains_train_eval_and_warm_starts():
     assert run["status"] == "PASSED" and run["pending"] is None
     assert [r["passed"] for r in run["results"]] == [True, True]
     assert run["results"][1]["gate"][0]["actual"] == 12
+
+
+def test_gate_eval_job_carries_the_stage_eval_overrides():
+    store = FakeStore()
+    doc = beni_curriculum()
+    doc["stages"][0]["eval"] = {"fallen_probability": 0}
+    runner = start(store, doc)
+    runner.tick()
+    finish(store, pending_job(store), openbeni_checkpoint="/logs/run1/model_99.pt")
+    runner.tick()
+    assert pending_job(store)["eval_fallen_probability"] == 0.0
 
 
 def test_missed_gate_retries_from_the_failed_attempt_then_stops():
@@ -317,6 +386,26 @@ def test_missed_gate_retries_from_the_failed_attempt_then_stops():
     run = store.runs["r1"]
     assert run["status"] == "FAILED_GATE"
     assert "after 2 attempt(s)" in run["error"]
+
+
+def test_skipped_gate_hands_its_checkpoint_to_the_next_stage():
+    store = FakeStore()
+    doc = beni_curriculum()
+    doc["stages"][0]["on_fail"] = {"retries": 0}
+    runner = start(store, doc)
+    runner.tick()
+    finish(store, pending_job(store), openbeni_checkpoint="/a.pt")
+    runner.tick()
+    finish(store, pending_job(store), eval_results={"mean_return": 1})
+    runner.tick()
+    run = store.runs["r1"]
+    assert run["status"] == "FAILED_GATE" and run["results"][-1]["passed"] is False
+    # What POST /api/v1/curriculum-runs/:id/skip writes.
+    run["results"][-1]["skipped"] = True
+    run.update(status="RUNNING", stage_index=1, attempt=0, pending=None, error=None, ended_at=None)
+    runner.tick()
+    t2 = pending_job(store)
+    assert t2["curriculum_stage_index"] == 1 and t2["init_checkpoint"] == "/a.pt"
 
 
 def test_restart_does_not_queue_twice():

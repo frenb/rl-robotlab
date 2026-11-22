@@ -54,7 +54,7 @@ from . import pre_rubric_checks
 # Anthropic model id for the Judge. Per the user's earlier decision
 # (b: same model for MadScientist and Judge), this matches the
 # planned Researcher model. Override via env if needed.
-JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "claude-opus-4-7")
+JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "claude-opus-5-5")
 
 # Approximate Anthropic pricing per million tokens (input / output).
 # Used for cost attribution on proposal.cost.judge_usd. Updated

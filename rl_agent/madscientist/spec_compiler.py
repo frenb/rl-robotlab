@@ -12,9 +12,9 @@ accepts it on the dashboard, which writes the code into the spec text and the
 Every LLM call is logged in ``spec_compile_runs``, whose cost counts against
 Mad Scientist's monthly budget.
 
-The LLM is reached through the Cursor SDK when ``CURSOR_API_KEY`` is set
-(billed to the Cursor account, so logged at $0), else the Anthropic API;
-``SPEC_COMPILER_BACKEND=cursor|anthropic`` forces one.
+The LLM is reached through the Anthropic API (``ANTHROPIC_API_KEY``).
+``SPEC_COMPILER_BACKEND=cursor`` uses the Cursor SDK instead (billed to the
+Cursor account, so logged at $0).
 """
 from __future__ import annotations
 
@@ -32,8 +32,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 import spec as specs  # noqa: E402
 import targets  # noqa: E402
 
-BACKEND = os.environ.get("SPEC_COMPILER_BACKEND") or (
-    "cursor" if os.environ.get("CURSOR_API_KEY") else "anthropic")
+BACKEND = os.environ.get("SPEC_COMPILER_BACKEND") or "anthropic"
 SPEC_COMPILER_MODEL = os.environ.get("SPEC_COMPILER_MODEL") or (
     "claude-opus-5-5" if BACKEND == "cursor" else researcher.RESEARCHER_MODEL)
 MAX_ROUNDS = int(os.environ.get("SPEC_COMPILER_MAX_ROUNDS", "3"))

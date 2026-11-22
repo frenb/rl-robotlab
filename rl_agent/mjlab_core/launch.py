@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from media import pick_evenly  # noqa: F401
+from mjlab_core import stage_settings
 
 CHECKPOINT_RE = re.compile(r"^model_(\d+)\.pt$")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -157,6 +158,12 @@ def train_command(job, attempt, cfg: LaunchConfig, resume_from=None,
         "--agent.run-name", run_name(job, attempt),
     ]
     env = design_env(cfg, reward_design_file, experiment_design_file)
+    stage = stage_settings.env_for(job)
+    if stage:
+        if cfg.cfg_hook is None:
+            raise JobSpecError("this robot's trainer can't apply curriculum stage settings")
+        env.update(stage)
+        env[cfg.cfg_hook_env] = f"{cfg.cfg_hook}:apply"
     if resume_from is not None:
         remaining = total - checkpoint_iteration(resume_from)
         if remaining <= 0:
@@ -186,12 +193,21 @@ def checkpoint_clips(run_dirs, clip_dir="clips"):
     return clips
 
 
+def clip_label(job):
+    """On-clip overlay prefix: curriculum stage name when the job is a stage."""
+    return (job.get("curriculum_stage_name") or "").strip()
+
+
 def clip_watch_command(job, run_dir, script, cfg: LaunchConfig):
-    return [
+    argv = [
         "python", str(script), mjlab_task_id(job, cfg),
         "--seconds", str(positive_int(job, "seconds_per_checkpoint", cfg.defaults)),
         "--watch", str(run_dir),
     ]
+    label = clip_label(job)
+    if label:
+        argv += ["--label", label]
+    return argv
 
 
 def export_command(job, checkpoint, onnx_path, cfg: LaunchConfig):
@@ -205,13 +221,16 @@ def export_command(job, checkpoint, onnx_path, cfg: LaunchConfig):
 
 def eval_command(job, checkpoint, out_json, script, cfg: LaunchConfig):
     checkpoint_iteration(checkpoint)
-    return [
+    argv = [
         "python", str(script), mjlab_task_id(job, cfg),
         "--checkpoint", str(checkpoint),
         "--num-envs", str(positive_int(job, "eval_num_envs", cfg.defaults)),
         "--steps", str(positive_int(job, "eval_steps", cfg.defaults)),
         "--out", str(out_json),
     ]
+    if job.get("eval_fallen_probability") is not None:
+        argv += ["--fallen-probability", str(float(job["eval_fallen_probability"]))]
+    return argv
 
 
 def video_command(job, script, cfg: LaunchConfig, clips=(), progression=(), out_mp4=None):
@@ -223,6 +242,9 @@ def video_command(job, script, cfg: LaunchConfig, clips=(), progression=(), out_
         checkpoint_iteration(path)
     argv = ["python", str(script), mjlab_task_id(job, cfg),
             "--seconds", str(positive_int(job, "seconds_per_checkpoint", cfg.defaults))]
+    label = clip_label(job)
+    if label:
+        argv += ["--label", label]
     if clips:
         argv += ["--checkpoints", *[str(p) for p in clips]]
     if progression:

@@ -148,7 +148,7 @@ def main():
         "NOTIFY_POLL_INTERVAL_SECONDS",
         email_bridge.DEFAULT_NOTIFY_POLL_INTERVAL_SECONDS))
     dashboard_public_url = os.environ.get(
-        "DASHBOARD_PUBLIC_URL", "http://localhost:8080").strip()
+        "DASHBOARD_PUBLIC_URL", "http://localhost").strip()
     token_secret = os.environ.get("MADSCIENTIST_TOKEN_SECRET", "").strip()
     token_ttl = int(os.environ.get(
         "DECISION_TOKEN_TTL_SECONDS",

@@ -22,6 +22,7 @@ CURRICULUM_DEFAULTS = {
     "checkpoint_field": None,
     "carry": [],
     "carry_atomic": False,
+    "carry_same_task": False,
     "early_stop": False,
     "gate_metrics": [],
 }
@@ -81,6 +82,14 @@ def _parse_scalar(raw: str):
     if s.startswith("[") and s.endswith("]"):
         inner = s[1:-1].strip()
         return [_parse_scalar(x) for x in _split_inline(inner)] if inner else []
+    if s.startswith("{") and s.endswith("}"):
+        out = {}
+        for item in _split_inline(s[1:-1].strip()):
+            key, sep, val = item.partition(":")
+            if not sep:
+                raise RobotManifestError(f"unsupported inline map entry: {item!r}")
+            out[str(_parse_scalar(key))] = _parse_scalar(val)
+        return out
     low = s.lower()
     if low == "true":
         return True
@@ -98,14 +107,47 @@ def _parse_scalar(raw: str):
         return s
 
 
-def _parse_simple_yaml(text: str) -> dict:
-    """Parse nested ``key: value`` maps + inline lists without PyYAML."""
-    root: dict = {}
-    stack: list[tuple[int, dict]] = [(-1, root)]
+def _open_brackets(text: str) -> int:
+    depth, in_s, in_d = 0, False, False
+    for ch in text:
+        if ch == "'" and not in_d:
+            in_s = not in_s
+        elif ch == '"' and not in_s:
+            in_d = not in_d
+        elif not in_s and not in_d:
+            if ch in "[{":
+                depth += 1
+            elif ch in "]}":
+                depth -= 1
+    return depth
+
+
+def _logical_lines(text: str) -> list[str]:
+    """Comment-free lines, with an inline list or map that wraps joined onto one."""
+    out: list[str] = []
+    pending = ""
     for raw_line in text.splitlines():
         cleaned = _strip_comment(raw_line).rstrip()
-        if not cleaned.strip():
+        if pending:
+            pending += " " + cleaned.strip()
+        elif cleaned.strip():
+            pending = cleaned
+        else:
             continue
+        if _open_brackets(pending) <= 0:
+            out.append(pending)
+            pending = ""
+    if pending:
+        raise RobotManifestError(f"unclosed bracket in: {pending.strip()!r}")
+    return out
+
+
+def _parse_simple_yaml(text: str) -> dict:
+    """Parse nested ``key: value`` maps + inline lists and maps without PyYAML."""
+    root: dict = {}
+    stack: list[tuple[int, dict]] = [(-1, root)]
+    for cleaned in _logical_lines(text):
+        raw_line = cleaned
         indent = len(cleaned) - len(cleaned.lstrip(" "))
         content = cleaned.strip()
         if ":" not in content:

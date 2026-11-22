@@ -112,6 +112,11 @@ def test_clip_watch_command_renders_the_mjlab_twin():
     assert argv[:3] == ["python", "r.py", "Mjlab-Velocity-Flat-MicroDuck"]
     assert flag(argv, "--watch") == RUN
     assert flag(argv, "--seconds") == "5"
+    assert "--label" not in argv
+    labeled = launch.clip_watch_command(
+        {"task_id": "Unity-Velocity-Flat-MicroDuck", "curriculum_stage_name": "Balance"},
+        RUN, "r.py")
+    assert flag(labeled, "--label") == "Balance"
 
 
 def test_pick_evenly_keeps_first_and_last():

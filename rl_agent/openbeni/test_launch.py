@@ -53,6 +53,12 @@ def test_designs_reach_the_hooks_under_openbeni_env_names():
     assert not any(k.startswith("MICRODUCK_") for k in env)
 
 
+def test_stage_settings_install_the_env_hook_without_designs():
+    _, env = launch.train_command({"_id": "abc", "stage_settings": {"push_force_max": 30}}, 0)
+    assert env["OPENBENI_CFG_HOOK"].endswith("cfg_hook.py:apply")
+    assert env["MJLAB_STAGE_SETTINGS"] == '{"push_force_max": 30}'
+
+
 def test_loading_a_checkpoint_only_needs_the_agent_hook():
     load = launch.design_env(experiment_design_file="e.json", train=False)
     assert set(load) == {"OPENBENI_RL_CFG_HOOK", "OPENBENI_EXPERIMENT_DESIGN"}
@@ -69,3 +75,6 @@ def test_export_and_eval_commands():
     assert argv[2] == "Beni-Velocity-Flat"
     assert flag(argv, "--num-envs") == "256"
     assert flag(argv, "--steps") == "1000"
+    assert "--fallen-probability" not in argv
+    argv = launch.eval_command({"_id": "abc", "eval_fallen_probability": 0}, ckpt, "/tmp/e.json", "evaluate.py")
+    assert flag(argv, "--fallen-probability") == "0.0"

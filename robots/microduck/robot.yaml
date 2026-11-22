@@ -41,6 +41,7 @@ curriculum:
   checkpoint_field: duck_checkpoint
   carry: [weights, optimizer, entropy, normalizer]
   carry_atomic: true
+  carry_same_task: true
   early_stop: false
   gate_metrics: [fall_rate, mean_return, mean_episode_length, mean_reward_per_step]
 
