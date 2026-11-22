@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    InstallZero for rl-roboracer: installs it on a Windows PC with an NVIDIA
+    InstallZero for rl-robotlab: installs it on a Windows PC with an NVIDIA
     GPU, from nothing to a first TRAIN job producing training steps.
 
 .DESCRIPTION
@@ -18,7 +18,7 @@
       6 unity       The starter gyms unpacked into <InstallDir>\UnityBinary\,
                     the default one (v13) also into unity\Builds\latest\
         demos       Expert-demo recording the donut TRAIN jobs start from
-      7 start       Stack up (containers, TensorBoard, fly-brain, dashboard)
+      7 start       Stack up (containers, trainer, fly-brain, dashboard)
         seed        Starter gyms, reward design and experiment designs in
                     MongoDB (seed\seed.json). Each gym names its reference
                     course, reward design and experiment design; existing
@@ -30,7 +30,7 @@
       8 firstjob    A short TRAIN job on the default gym with that gym's
                     reference course and designs (no first eval; BC
                     pretrain only if the design sets it), producing
-                    training steps and TensorBoard scalars
+                    training steps and curves on the dashboard
         optimize    Optional doctor review of PC settings (-Optimize, or
                     y/N with a 10-second default of no) while that job
                     trains, so GPU load under training is part of it
@@ -53,7 +53,7 @@
     3 sign out and back in needed (re-run afterwards).
 
 .PARAMETER InstallDir
-    Parent folder. The repo is cloned into <InstallDir>\rl-roboracer and the
+    Parent folder. The repo is cloned into <InstallDir>\rl-robotlab and the
     data folders (saved_models, mongodb, tfrecords) sit beside it.
 
 .PARAMETER RepoUrl
@@ -67,7 +67,7 @@
     roboracer-demos-donut.zip, each optionally with a "<zip>.sha256").
     Default: the folder this script is in, when the gym zips are there;
     otherwise they are downloaded from the GitHub Release -UnityReleaseTag.
-    Likewise a rl-roboracer.bundle next to the script is cloned (branch
+    Likewise a rl-robotlab.bundle next to the script is cloned (branch
     rltest) instead of -RepoUrl, an installzero-engine folder next to it is
     used as -EngineDir, and a doctor-assets folder beside the script's
     folder is used as -DoctorAssets.
@@ -170,7 +170,7 @@
 
 .EXAMPLE
     .\Install.ps1
-    Installs from GitHub into %USERPROFILE%\rl-roboracer and asks which
+    Installs from GitHub into %USERPROFILE%\rl-robotlab and asks which
     doctor model to use.
 
 .EXAMPLE
@@ -179,7 +179,7 @@
     environment or asked for).
 
 .EXAMPLE
-    C:\Users\Public\rl-roboracer-test\Install.ps1 -Doctor gemma
+    C:\Users\Public\rl-robotlab-test\Install.ps1 -Doctor gemma
     The rltest clean test: the code, gyms and doctor models staged by
     Prepare-RlTest.ps1 next to it are found without options.
 
@@ -189,8 +189,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$InstallDir = (Join-Path $env:USERPROFILE 'rl-roboracer'),
-    [string]$RepoUrl = 'https://github.com/frenb/rl-roboracer.git',
+    [string]$InstallDir = (Join-Path $env:USERPROFILE 'rl-robotlab'),
+    [string]$RepoUrl = 'https://github.com/frenb/rl-robotlab.git',
     [string]$Branch = 'main',
     [string]$AssetDir = '',
     [string]$UnityReleaseTag = 'v0.1',
@@ -221,7 +221,7 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $ScriptParams = $PSBoundParameters
 
-$GithubRepo     = 'frenb/rl-roboracer'
+$GithubRepo     = 'frenb/rl-robotlab'
 $DemoAssetName  = 'roboracer-demos-donut.zip'
 # Ids and names must match the gyms in seed\seed.json. Each ships as
 # roboracer-gym-<Folder>.zip; the first one is the default client.
@@ -236,7 +236,7 @@ if ($PSScriptRoot) {
     if (-not $AssetDir -and (Test-Path (Join-Path $PSScriptRoot "roboracer-gym-$($Gyms[0].Folder).zip"))) {
         $AssetDir = $PSScriptRoot; $ScriptParams['AssetDir'] = $AssetDir
     }
-    $stagedBundle = Join-Path $PSScriptRoot 'rl-roboracer.bundle'
+    $stagedBundle = Join-Path $PSScriptRoot 'rl-robotlab.bundle'
     if (-not $ScriptParams.ContainsKey('RepoUrl') -and (Test-Path $stagedBundle)) {
         $RepoUrl = $stagedBundle; $ScriptParams['RepoUrl'] = $RepoUrl
         if (-not $ScriptParams.ContainsKey('Branch')) { $Branch = 'rltest'; $ScriptParams['Branch'] = $Branch }
@@ -259,15 +259,15 @@ $BuildServices  = @('ros-server', 'sim-controller', 'fly-brain')
 $StartServices  = @('ros-server', 'mongo', 'mongo-express', 'sim-controller', 'dashboard', 'fly-brain')
 $DockerExe      = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
 
-$StateDir   = Join-Path $env:LOCALAPPDATA 'rl-roboracer-install'
+$StateDir   = Join-Path $env:LOCALAPPDATA 'rl-robotlab-install'
 $RunStamp   = Get-Date -Format 'yyyyMMdd-HHmmss'
 $ReportPath = Join-Path $StateDir 'install-report.json'
 $RunReportPath = Join-Path $StateDir "install-report-$RunStamp.json"
-$RepoDir    = Join-Path $InstallDir 'rl-roboracer'
+$RepoDir    = Join-Path $InstallDir 'rl-robotlab'
 $UnityBinaryDir = Join-Path $InstallDir 'UnityBinary'
 $DefaultGymExe  = Join-Path $UnityBinaryDir "$($Gyms[0].Folder)\$GymExeName"
 $RunOnceKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce'
-$RunOnceName = 'rl-roboracer-install'
+$RunOnceName = 'rl-robotlab-install'
 
 $script:Report = New-Object System.Collections.ArrayList
 $script:Diagnoses = New-Object System.Collections.ArrayList
@@ -1418,7 +1418,7 @@ function Invoke-StartPhase {
         if (-not (Test-Path $RepoDir)) { return $null }
         $running = @((Invoke-Compose @('ps', '--status', 'running', '--services') -Quiet).Out -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         $missing = @($StartServices | Where-Object { $running -notcontains $_ })
-        if ($missing.Count -eq 0 -and (Test-TcpPort 10000) -and (Test-TcpPort 6006)) {
+        if ($missing.Count -eq 0 -and (Test-TcpPort 10000) -and (Test-TcpPort 80)) {
             $envs = Get-TrainerNumEnvs
             if ($null -ne $envs -and $envs -ne $Clients) { Write-Info "the trainer runs with --num-envs $envs, $Clients wanted"; return $null }
             return "services running: $($StartServices -join ', '); trainer --num-envs $Clients"
@@ -1443,7 +1443,9 @@ function Invoke-StartPhase {
         }
         Assert-NoCrashLoop
         if (-not (Wait-Until { Test-TcpPort 10000 } -TimeoutSec 120 -What 'ros-server on port 10000')) { Stop-Phase 'ros-server did not open port 10000 within 2 minutes' }
-        if (-not (Wait-Until { Test-TcpPort 6006 } -TimeoutSec 180 -What 'TensorBoard on port 6006')) { Stop-Phase 'TensorBoard did not open port 6006 within 3 minutes' }
+        if (-not (Wait-Until { $null -ne (Get-TrainerNumEnvs) } -TimeoutSec 180 -What 'the trainer in sim-controller')) {
+            Stop-WithDiagnosis 'container' (Get-ServiceLogs @('sim-controller')) 'the trainer did not start in sim-controller within 3 minutes'
+        }
         # First start generates its gRPC stubs and downloads the ~260 MB connectome.
         $flyUp = { (Invoke-Compose @('exec', '-T', 'fly-brain', 'python', '-c', "import socket; socket.create_connection(('127.0.0.1', 50061), 2)") -Quiet).Code -eq 0 }
         if (-not (Wait-Until $flyUp -TimeoutSec 900 -IntervalSec 10 -What 'fly-brain on port 50061 (first start downloads the connectome)')) {
@@ -1586,7 +1588,7 @@ function Invoke-SeedPhase {
 # ---------------------------------------------------------------------------
 
 function Get-AutostartShortcut {
-    $name = if ($ProjectName) { "rl-roboracer Unity client ($ProjectName).lnk" } else { 'rl-roboracer Unity client.lnk' }
+    $name = if ($ProjectName) { "rl-robotlab Unity client ($ProjectName).lnk" } else { 'rl-robotlab Unity client.lnk' }
     Join-Path ([Environment]::GetFolderPath('Startup')) $name
 }
 
@@ -1610,7 +1612,7 @@ function Invoke-AutostartPhase {
         $s.Arguments = $arguments
         $s.WorkingDirectory = $RepoDir
         $s.WindowStyle = 7
-        $s.Description = 'Waits for Docker and ros-server, then supervises the rl-roboracer Unity client (gym switching on).'
+        $s.Description = 'Waits for Docker and ros-server, then supervises the rl-robotlab Unity client (gym switching on).'
         $s.Save()
         "Startup shortcut $lnk starts $Clients client(s) on $($Gyms[0].Name) at each sign-in"
     }
@@ -1620,13 +1622,13 @@ function Invoke-AutostartPhase {
 # Phase 8 - first TRAIN job
 # ---------------------------------------------------------------------------
 
-# Tag count across all TensorBoard runs, or -1 while TensorBoard is unreachable.
-function Get-TensorBoardTagCount {
+# Metric tags the dashboard reads from the first job's event files, or -1 while it can't.
+function Get-MetricTagCount {
+    $r = Invoke-Mongo "const j = db.jobs.findOne({installer_first_job: true}, {_id: 1}); print(j ? j._id.toString() : '')"
+    $id = ($r.Out -split "`n" | Where-Object { $_ } | Select-Object -Last 1)
+    if ($r.Code -ne 0 -or -not $id) { return -1 }
     try {
-        $tags = Invoke-RestMethod -Uri 'http://127.0.0.1:6006/data/plugin/scalars/tags' -TimeoutSec 10
-        $n = 0
-        foreach ($run in $tags.PSObject.Properties) { $n += @($run.Value.PSObject.Properties).Count }
-        $n
+        @((Invoke-RestMethod -Uri "http://127.0.0.1/api/v1/runs/$($id.Trim())/tags" -TimeoutSec 10).tags).Count
     } catch { -1 }
 }
 
@@ -1690,11 +1692,11 @@ function Invoke-FirstJobPhase {
         $ok = Wait-Until { @(Get-TrainLines).Count -ge 2 -or (Get-FirstJobStatus) -eq 'FAILED' } -TimeoutSec ($FirstJobWaitMinutes * 60) -IntervalSec 20 -What 'training steps'
         if ((Get-FirstJobStatus) -eq 'FAILED') { Stop-TrainerFailure 'the first training job failed' }
         if (-not $ok) { Stop-TrainerFailure "no training steps after $FirstJobWaitMinutes minutes" }
-        if (-not (Wait-Until { (Get-TensorBoardTagCount) -gt 0 } -TimeoutSec 300 -IntervalSec 15 -What 'TensorBoard scalars')) {
-            Stop-TrainerFailure "training is running but TensorBoard shows no scalars after 5 minutes (http://127.0.0.1:6006)"
+        if (-not (Wait-Until { (Get-MetricTagCount) -gt 0 } -TimeoutSec 300 -IntervalSec 15 -What 'training curves on the dashboard')) {
+            Stop-TrainerFailure "training is running but the dashboard reads no metrics for it after 5 minutes (http://localhost/app/runs)"
         }
         $lines = @(Get-TrainLines)
-        "job $(Get-FirstJobStatus); $($lines.Count) training iterations so far; $(Get-TensorBoardTagCount) TensorBoard scalar tags; last: $($lines[-1])"
+        "job $(Get-FirstJobStatus); $($lines.Count) training iterations so far; $(Get-MetricTagCount) metric tags; last: $($lines[-1])"
     }
 }
 
@@ -1915,7 +1917,7 @@ function Invoke-InstallDoctor([string]$Message) {
         $failed = @($script:Report | Where-Object { $_.outcome -eq 'failed' }) | Select-Object -Last 1
         $phase = if ($failed) { $failed.phase } elseif ($ctx) { $ctx.Phase } else { 'unknown' }
         $problem = @(
-            "The InstallZero installer for rl-roboracer (scripts\install\Install.ps1) stopped in phase '$phase'."
+            "The InstallZero installer for rl-robotlab (scripts\install\Install.ps1) stopped in phase '$phase'."
             "Installer message: $Message"
             $(if ($ctx -and $ctx.Catalog) { "The installer's failure catalog matched: $($ctx.Catalog)" } else { "The installer's failure catalog did not recognise this failure." })
             "Installer state, logs and report: $StateDir (install-*.log, build*.log, install-report.json). Install folder: $InstallDir."
@@ -1960,7 +1962,7 @@ New-Item -ItemType Directory -Force $StateDir | Out-Null
 $LogPath = Join-Path $StateDir "install-$RunStamp.log"
 Start-Transcript -Path $LogPath -Append | Out-Null
 
-Write-Host "InstallZero: rl-roboracer  (log: $LogPath)" -ForegroundColor White
+Write-Host "InstallZero: rl-robotlab  (log: $LogPath)" -ForegroundColor White
 Write-Host "Install folder: $InstallDir"
 Write-Host "Code: $RepoUrl ($Branch)"
 Write-Host "Gyms and demos: $(if ($AssetDir) { $AssetDir } else { "https://github.com/$GithubRepo/releases/tag/$UnityReleaseTag" })"
@@ -2037,7 +2039,7 @@ try {
         Write-Host ''
         Write-Host 'Done. Training is running:' -ForegroundColor Green
         Write-Host '  Dashboard      http://localhost'
-        Write-Host '  TensorBoard    http://localhost:6006'
+        Write-Host '  Runs & curves  http://localhost/app/runs'
         Write-Host '  Mongo Express  http://127.0.0.1:8081'
         Write-Host "  Trainer log    $RepoDir\rl_agent\robotaxi.out"
         Show-OptimizeSummary

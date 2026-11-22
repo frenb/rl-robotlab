@@ -27,3 +27,13 @@ if (missing.length || undocumented.length) {
   if (undocumented.length) console.error(`no description: ${undocumented.join(', ')}`);
   process.exit(1);
 }
+
+{
+  const { spreadPick, frameTimes } = await import('../src/tools/media.js');
+  const assert = (await import('node:assert/strict')).default;
+  assert.deepEqual(spreadPick([0, 100, 200, 300, 400], 3), [0, 200, 400]);
+  assert.deepEqual(spreadPick([0, 100], 4), [0, 100]);
+  assert.deepEqual(frameTimes(10, 4), [1.25, 3.75, 6.25, 8.75]);
+  assert.deepEqual(frameTimes(0, 4), [0]);
+  console.log('media helpers: ok');
+}

@@ -20,6 +20,8 @@
 # Node
 node_modules/
 dashboard/build/
+dashboard/app/dist/
+*.tsbuildinfo
 
 # Backup files for sed rename
 *.js-e
@@ -122,3 +124,6 @@ docs/video/plane-ref/
 unity/.vscode/
 unity6.6/Assets/_Recovery*
 
+
+# In-app agent chat transcripts (agent/src/sessions.js)
+agent/.sessions/

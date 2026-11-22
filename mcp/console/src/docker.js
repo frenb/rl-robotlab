@@ -27,4 +27,3 @@ export const powershell = (args, opts) => run('powershell.exe', ['-NoProfile', '
 /** `docker compose exec <args>` against the stack (base, scale and duck overlays). */
 export const composeExec = (args, opts) => run('docker', [...COMPOSE, 'exec', ...args], opts);
 
-export const composeLogs = (service, lines, opts) => run('docker', [...COMPOSE, 'logs', '--no-color', '--tail', String(lines), service], opts);

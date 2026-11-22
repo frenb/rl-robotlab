@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { get, list, post, BASE_URL } from '../api.js';
-import { defineTool, confirmArg, requireConfirm, resolveRow, compact, robotArg, robotOf, isMjlab } from '../util.js';
+import { defineTool, confirmArg, requireConfirm, resolveRow, compact, robotArg, robotOf, isDuck, isMjlab } from '../util.js';
 import { buildJob, buildDuckJob, insertJob, pickLists, MODEL_TYPES, COURSES, SCRATCH_BUILT_POLICIES, FLY_POLICY_COURSE } from '../jobPayload.js';
 import { summary, compareSamples, round } from '../stats.js';
 import { METRICS, runsFor, pooled } from '../scores.js';
@@ -8,12 +8,12 @@ import { jobMedia } from './jobs.js';
 
 const MODEL_ROW_KEYS = [
   'create_date', 'location', 'model_type', 'course_type', 'training_iterations', 'avg_return',
-  'reward_design_name', 'experiment_design_name', 'job_id', 'is_global_best', 'notes',
+  'reward_design_name', 'experiment_design_name', 'job_id', 'is_global_best', 'promoted_at', 'notes',
 ];
 // rl_agent/duck/worker.py upsert_model: one model per TRAIN job, at its latest checkpoint.
 const DUCK_MODEL_KEYS = [
   'create_date', 'updated_at', 'location', 'onnx_location', 'model_type', 'task_id', 'training_iterations',
-  'avg_return', 'reward_design_name', 'experiment_design_name', 'job_id', 'obs_dim', 'act_dim',
+  'avg_return', 'reward_design_name', 'experiment_design_name', 'job_id', 'obs_dim', 'act_dim', 'promoted_at', 'notes',
 ];
 // A duck EVAL writes one aggregate (rl_agent/duck evaluate script) rather than per-trial arrays.
 const DUCK_METRICS = {
@@ -133,6 +133,20 @@ export function register(server) {
     return out;
   });
 
+  defineTool(server, 'promote_model', {
+    title: 'Promote model',
+    description: 'Models page "Promote": marks one model as its robot\'s promoted model (the one to deploy or warm-start from), '
+      + 'unmarking the previous one; promoted: false unmarks it. Not the same as is_global_best, which only flags each run\'s newest checkpoint.',
+    input: {
+      id: z.string().describe('Model id or id suffix.'),
+      promoted: z.boolean().optional().describe('Default true.'),
+    },
+  }, async ({ id, promoted = true }) => {
+    const model = resolveRow(await list('/get_models'), id, 'model');
+    const res = await post(`/api/v1/models/${model._id}/promote`, { promoted });
+    return { model: res.model, demoted: res.demoted };
+  });
+
   defineTool(server, 'eval_models', {
     title: 'Evaluate models',
     description: 'Models tab "Eval selected": queue one EVAL job per model, for either robot. roboracer: course, model type and '
@@ -222,36 +236,41 @@ export function register(server) {
     return { queued: jobs.length, jobs };
   });
 
-  defineTool(server, 'compare_in_tensorboard', {
-    title: 'Compare runs in TensorBoard',
-    description: 'Models / Analysis "Compare": point TensorBoard\'s compare/ runs at these jobs\' archived data. Replaces the '
-      + 'current comparison set. Accepts job ids or model ids (a model maps to the job that trained it).',
+  defineTool(server, 'compare_link', {
+    title: 'Compare link',
+    description: 'Link to the dashboard Compare page for these runs and/or models, any robot: overlaid training curves, settings '
+      + 'diff, eval table with Welch\'s t-test against a baseline, and synced clips. A model brings in the run that trained it '
+      + 'and is preselected in the eval table. At most 12 runs. For the numbers themselves use compare_models.',
+    readOnly: true,
     input: {
-      runs: z.array(z.object({
-        id: z.string().describe('Job id or model id.'),
-        label: z.string().regex(/^[a-zA-Z0-9_-]{1,32}$/).optional().describe('Run name prefix shown in TensorBoard, e.g. "base".'),
-      })).min(1),
+      ids: z.array(z.string()).min(1).max(50).describe('Job (run) ids or model ids, full or the last 8 characters.'),
+      tab: z.enum(['curves', 'config', 'evals', 'clips']).optional().describe('Tab to open. Default curves, or evals when only models are given.'),
     },
-  }, async ({ runs }) => {
+  }, async ({ ids, tab }) => {
     const [jobs, models] = await Promise.all([list('/get_jobs'), list('/get_models')]);
-    const entries = runs.map(({ id, label }) => {
+    const runIds = [];
+    const modelIds = [];
+    for (const id of ids) {
       let job = null;
-      try { job = resolveRow(jobs, id, 'job'); } catch {
-        const m = resolveRow(models, id, 'job or model');
-        if (!m.job_id) throw new Error(`model ${m._id} has no job_id`);
-        job = jobs.find((j) => String(j._id) === String(m.job_id)) || { _id: m.job_id, robot: m.robot };
-      }
-      if (isDuck(job)) {
-        throw new Error(`job ${job._id} is a microduck run: its TensorBoard events are in duck-trainer under `
-          + `${(job.duck_run_dirs || []).join(', ') || '/microduck_rl/logs/rsl_rl'}, which the car TensorBoard does not read. `
-          + 'Use compare_models or list_jobs (mean_reward) for duck runs.');
-      }
-      const jobId = String(job._id);
-      return label ? { jobId, label } : { jobId };
-    });
-    const res = await post('/set_tb_compare_jobs', { jobs: entries });
-    const host = new URL(BASE_URL).hostname;
-    return { ...res, tensorboard: `http://${host}:6006/`, note: 'TensorBoard rescans within ~5 s. Jobs still training appear under current/, not compare/.' };
+      try { job = resolveRow(jobs, id, 'job'); } catch { /* not a job: try models */ }
+      if (job) runIds.push(String(job._id));
+      else modelIds.push(String(resolveRow(models, id, 'job or model')._id));
+    }
+    const data = await get('/api/v1/compare', { runs: runIds.join(','), models: modelIds.join(',') });
+    const query = new URLSearchParams();
+    const allRuns = data.runs.map((r) => r.run.id);
+    if (allRuns.length) query.set('runs', allRuns.join(','));
+    if (modelIds.length) query.set('models', modelIds.join(','));
+    const open = tab || (runIds.length ? undefined : 'evals');
+    if (open && open !== 'curves') query.set('tab', open);
+    return {
+      url: `${BASE_URL}/app/compare?${query.toString().replace(/%2C/g, ',')}`,
+      runs: data.runs.map((r) => ({
+        id: r.run.id, robot: r.run.robot, name: r.run.name || r.run.gym_name || r.run.task_id, status: r.run.status, checkpoints: r.checkpoints,
+      })),
+      evaluated_models: data.models.length,
+      missing: data.missing,
+    };
   });
 
   defineTool(server, 'get_leaderboard', {
@@ -308,8 +327,8 @@ export function register(server) {
   });
 
   defineTool(server, 'compare_models', {
-    title: 'Compare models (Analysis)',
-    description: 'Analysis tab: per-model statistics over pooled eval trials, and each model against the first one (baseline) '
+    title: 'Compare models',
+    description: 'Compare page, Evals tab: per-model statistics over pooled eval trials, and each model against the first one (baseline) '
       + 'with Welch\'s t-test and Hedges\' g. microduck models (all the same robot) are compared on their EVAL aggregates '
       + 'with differences from the baseline; a duck EVAL keeps no per-trial samples, so there is no significance test.',
     readOnly: true,

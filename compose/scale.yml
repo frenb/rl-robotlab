@@ -57,7 +57,7 @@ x-ros-server-base: &ros-server-base
 services:
   ros-server-1:
     <<: *ros-server-base
-    container_name: ${COMPOSE_PROJECT_NAME:-rl-roboracer}-ros-server-1-pinned
+    container_name: ${COMPOSE_PROJECT_NAME:-rl-robotlab}-ros-server-1-pinned
     ports:
       - "10001:10000"
       - "50052:50051"
@@ -68,7 +68,7 @@ services:
 
   ros-server-2:
     <<: *ros-server-base
-    container_name: ${COMPOSE_PROJECT_NAME:-rl-roboracer}-ros-server-2-pinned
+    container_name: ${COMPOSE_PROJECT_NAME:-rl-robotlab}-ros-server-2-pinned
     ports:
       - "10002:10000"
       - "50053:50051"
@@ -79,7 +79,7 @@ services:
 
   ros-server-3:
     <<: *ros-server-base
-    container_name: ${COMPOSE_PROJECT_NAME:-rl-roboracer}-ros-server-3-pinned
+    container_name: ${COMPOSE_PROJECT_NAME:-rl-robotlab}-ros-server-3-pinned
     ports:
       - "10003:10000"
       - "50054:50051"
@@ -98,8 +98,8 @@ services:
   # dwarf [actor-1..3] until the multi-env trainer reaches its first
   # collect step.
   #
-  # When the overlay is active, the container instead just hosts
-  # tensorboard and waits. The user starts the multi-env trainer
+  # When the overlay is active, the container instead just
+  # waits. The user starts the multi-env trainer
   # explicitly:
   #
   #   docker compose -f docker-compose.yml -f compose/scale.yml \
@@ -114,26 +114,7 @@ services:
   # command writes that file, so under this overlay it is never written
   # and the panel would sit on a stale file forever.
   sim-controller:
-    # IMPORTANT: keep this in sync with docker-compose.yml's
-    # sim-controller command for the tensorboard part. When this
-    # overlay is active, Compose merges the two files and `command:`
-    # is a *replace* (not a merge), so anything the base file does
-    # that we don't echo here is lost - including the --logdir_spec
-    # that wires up the on-demand /tmp/tb_compare bucket.
-    #
-    # The dashboard's "Compare in Analysis" feature relies on the
-    # `compare:` experiment being part of TB's logdir_spec; if this
-    # command falls back to a plain --logdir /tmp/active the Compare
-    # tab silently shows only the currently-training job. (We hit
-    # that bug 2026-05-24; see also docker-compose.yml::sim-controller
-    # for the long-form explanation.)
-    #
-    # Difference from the base command: the base one ALSO chains
-    # `python robotaxi.py` after TB; this overlay intentionally drops
-    # that so the container just hosts TB and the user invokes the
-    # trainer via `docker compose ... exec sim-controller ...` with
-    # an explicit --num-envs flag.
-    command: >-
-      sh -c "tensorboard --bind_all
-      --logdir_spec=current:/tmp/active,compare:/tmp/tb_compare
-      --reload_multifile true --reload_interval 5 2>&1 | tee /tmp/tb.log"
+    # Compose replaces (does not merge) `command:`, so this drops the
+    # base file's auto-started single-env trainer; the container idles
+    # until the user execs the multi-env trainer as above.
+    command: sleep infinity

@@ -97,9 +97,10 @@ flipping the proposal to `done`.
 enabled), `BUDGET_USD_PER_MONTH`, `MAX_PROPOSALS_PER_DAY`, `MAX_QUEUED_JOBS`,
 `MAX_JOBS_PER_PROPOSAL`, `MADSCIENTIST_TOKEN_SECRET` (must match the dashboard
 service), `DASHBOARD_PUBLIC_URL`, `SMTP_*` / `NOTIFICATION_EMAIL`, and
-`CURSOR_API_KEY` / `CURSOR_TARGET_REPO` for the codegen path. Dashboard tab:
-`/madscientist` (`dashboard/madscientist.html`); API under
-`/madscientist/*` in `server.ts`.
+`CURSOR_API_KEY` / `CURSOR_TARGET_REPO` for the codegen path. Dashboard page:
+`/app/lab` (`dashboard/app/src/pages/LabPage.tsx`); API under `/api/v1/lab`
+(`dashboard/src/api/lab.ts`), with the classic `/madscientist/*` routes kept
+for the email magic links.
 
 **Known limitations / gotchas:**
 

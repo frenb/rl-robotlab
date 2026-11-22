@@ -26,6 +26,10 @@ const stageSchema = z.object({
   carry: z.array(z.string()).optional().describe('Training state taken from init: weights, optimizer, entropy, normalizer, replay, jsrl_guide. '
     + 'Omit for the robot\'s default; [] starts from scratch.'),
   gate: gateSchema.optional().describe('Metrics the stage must reach on its gate evaluation to pass. Omit: the stage passes when training ends.'),
+  eval: z.object({
+    fallen_probability: z.number().min(0).max(1).optional()
+      .describe('Share of gate-eval episodes that start knocked over (mjlab robots). 0 = standing starts only. Omit: the task default.'),
+  }).optional().describe('Gate-eval overrides for this stage only (not inherited).'),
   on_fail: z.object({
     retries: z.number().int().min(0).max(10).optional(),
     extra_budget: z.number().int().positive().optional().describe('Budget of each retry, continuing from the failed attempt. Default: the stage budget.'),

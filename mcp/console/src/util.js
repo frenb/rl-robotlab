@@ -33,10 +33,18 @@ function loadRobotMeta() {
 
 export const ROBOT_META = loadRobotMeta();
 
+const CONTENT = Symbol('mcp content');
+
+/** A handler result sent as these MCP content blocks (text and images) instead of JSON. */
+export function contentResult(blocks) {
+  return { [CONTENT]: blocks };
+}
+
 /**
  * Register a tool whose handler returns a plain value. The value is sent
- * back as pretty JSON; a thrown error becomes an isError result carrying
- * its message, so the dashboard's own validation errors reach the caller.
+ * back as pretty JSON (or as-is when built with contentResult); a thrown
+ * error becomes an isError result carrying its message, so the dashboard's
+ * own validation errors reach the caller.
  */
 export function defineTool(server, name, { title, description, input = {}, readOnly = false, destructive = false }, handler) {
   server.registerTool(name, {
@@ -47,6 +55,7 @@ export function defineTool(server, name, { title, description, input = {}, readO
   }, async (args) => {
     try {
       const out = await handler(args || {});
+      if (out && out[CONTENT]) return { content: out[CONTENT] };
       const text = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
       return { content: [{ type: 'text', text }] };
     } catch (e) {

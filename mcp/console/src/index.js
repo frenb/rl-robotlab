@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// MCP server for the rl-roboracer console: everything the dashboard tabs do,
+// MCP server for the rl-robotlab console: everything the dashboard tabs do,
 // over the dashboard's HTTP API, plus publishing gym builds to GitHub releases.
 
 import path from 'node:path';
@@ -16,12 +16,13 @@ import * as releases from './tools/releases.js';
 import * as weakness from './tools/weakness.js';
 import * as unity from './tools/unity.js';
 import * as curricula from './tools/curricula.js';
+import * as media from './tools/media.js';
 
 export function createServer() {
   const server = new McpServer(
     { name: 'roboracer-console', version: '0.1.0' },
     {
-      instructions: `Operates the rl-roboracer training console at ${BASE_URL}: job queue, models, leaderboard and analysis, `
+      instructions: `Operates the rl-robotlab training console at ${BASE_URL}: job queue, models, leaderboard and analysis, `
         + 'reward and experiment designs, gyms, demos, the MadScientist research agent, gym GitHub releases, and the '
         + 'Unity car clients on this host. Two robots share the queue: roboracer (car, Unity + SAC; the default) and '
         + 'microduck (mjlab + PPO, run by the duck worker). Jobs, models, gyms, reward and experiment designs and logs take '
@@ -34,7 +35,7 @@ export function createServer() {
         + 'options with the recommended one first, and call again with their answers. Don\'t fill them in yourself.',
     },
   );
-  for (const group of [jobs, weakness, models, designs, gymsDemos, madscientist, releases, unity, curricula]) group.register(server);
+  for (const group of [jobs, weakness, models, designs, gymsDemos, madscientist, releases, unity, curricula, media]) group.register(server);
   return server;
 }
 

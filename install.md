@@ -1,18 +1,18 @@
 ---
-name: rl-roboracer
-source: https://github.com/frenb/rl-roboracer
+name: rl-robotlab
+source: https://github.com/frenb/rl-robotlab
 summary: RL training stack for the Roboracer (Docker Desktop on WSL 2, NVIDIA GPU, Unity gyms), on Windows
 catalog: scripts/install/catalog
 ---
 
-# rl-roboracer install
+# rl-robotlab install
 
-Installs the rl-roboracer training stack on a Windows PC with an NVIDIA GPU,
+Installs the rl-robotlab training stack on a Windows PC with an NVIDIA GPU,
 from this repo's folder: WSL 2, Git and Docker Desktop with the GPU visible
 to containers, the data folders beside the repo, the three Docker images,
 the starter Unity gyms and expert demonstrations, then the running stack
-(ros-server, MongoDB, mongo-express, the trainer, TensorBoard on
-http://localhost:6006, fly-brain and the dashboard on http://localhost) with
+(ros-server, MongoDB, mongo-express, the trainer, fly-brain and the
+dashboard on http://localhost) with
 the starter documents seeded into MongoDB.
 
 Run it at the repo root: `installzero install`. The data folders
@@ -286,12 +286,12 @@ if (-not (Test-Path $marker) -or (Get-Content $marker -Raw | ConvertFrom-Json).g
 $ProgressPreference = 'SilentlyContinue'
 $bin = Join-Path (Split-Path '{{INSTALL_DIR}}') 'UnityBinary'
 $exe = 'robotaxi gym level 1.exe'
-$base = 'https://github.com/frenb/rl-roboracer/releases/download/v0.1'
+$base = 'https://github.com/frenb/rl-robotlab/releases/download/v0.1'
 $gyms = @(
     @{ Name = 'wCourseJetRacer2026.09.20-v13'; Folder = 'wCourseJetRacer2026.09.20-v13' },
     @{ Name = 'FlyBrain-wCourseJetRacer2026.09.28-v49'; Folder = 'wCourseJetRacer2026.09.28-v49' }
 )
-$tmp = Join-Path $env:TEMP 'rl-roboracer-gyms'
+$tmp = Join-Path $env:TEMP 'rl-robotlab-gyms'
 New-Item -ItemType Directory -Force $tmp, $bin | Out-Null
 foreach ($g in $gyms) {
     $dest = Join-Path $bin $g.Folder
@@ -345,8 +345,8 @@ if (-not @(Get-ChildItem $dir -Filter '*.tfrecord' -File -ErrorAction SilentlyCo
 ```install powershell phase=download
 $ProgressPreference = 'SilentlyContinue'
 $dir = Join-Path (Split-Path '{{INSTALL_DIR}}') 'tfrecords\job_64168c1b58d4d8ccdb76e721'
-$base = 'https://github.com/frenb/rl-roboracer/releases/download/v0.1'
-$tmp = Join-Path $env:TEMP 'rl-roboracer-demos'
+$base = 'https://github.com/frenb/rl-robotlab/releases/download/v0.1'
+$tmp = Join-Path $env:TEMP 'rl-robotlab-demos'
 New-Item -ItemType Directory -Force $tmp, $dir | Out-Null
 $zip = Join-Path $tmp 'roboracer-demos-donut.zip'
 Invoke-WebRequest "$base/roboracer-demos-donut.zip" -OutFile $zip -UseBasicParsing
@@ -375,14 +375,14 @@ if ($n -eq 0) { exit 1 }
 ## Step 11: start - Start the stack
 
 Why: brings up ros-server (port 10000), MongoDB, mongo-express, the
-trainer with TensorBoard (6006), fly-brain and the dashboard (80).
+trainer, fly-brain and the dashboard (80).
 
 ```detect powershell
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 $want = 'ros-server', 'mongo', 'mongo-express', 'sim-controller', 'dashboard', 'fly-brain'
 $running = @(docker compose ps --status running --services 2>$null | ForEach-Object { $_.Trim() })
 if (@($want | Where-Object { $running -notcontains $_ }).Count -gt 0) { exit 1 }
-foreach ($port in 10000, 6006) {
+foreach ($port in 10000, 80) {
     $c = New-Object Net.Sockets.TcpClient
     try { $c.Connect('127.0.0.1', $port) } catch { exit 1 } finally { $c.Close() }
 }
@@ -415,7 +415,11 @@ Start-Sleep -Seconds 20
 $failing = @(docker compose ps -a --format '{{.Service}}|{{.State}}' | Where-Object { $_ -match '\|(restarting|exited|dead)' } | ForEach-Object { ($_ -split '\|')[0] } | Where-Object { $services -contains $_ })
 if ($failing) { docker compose logs --no-color --tail 60 @failing; Write-Error "these services keep crashing: $($failing -join ', ')"; exit 1 }
 if (-not (Wait-Port 10000 2)) { Write-Error 'ros-server did not open port 10000 within 2 minutes'; exit 1 }
-if (-not (Wait-Port 6006 3)) { Write-Error 'TensorBoard did not open port 6006 within 3 minutes'; exit 1 }
+$deadline = (Get-Date).AddMinutes(3)
+while (-not ((docker compose exec -T sim-controller ps -eo args 2>$null) -match '^python.*robotaxi\.py')) {
+    if ((Get-Date) -gt $deadline) { docker compose logs --no-color --tail 60 sim-controller; Write-Error 'the trainer did not start in sim-controller within 3 minutes'; exit 1 }
+    Start-Sleep -Seconds 5
+}
 Write-Output 'Waiting for fly-brain (its first start downloads the ~260 MB connectome) ...'
 $deadline = (Get-Date).AddMinutes(15)
 do {
@@ -433,7 +437,7 @@ $want = 'ros-server', 'mongo', 'mongo-express', 'sim-controller', 'dashboard', '
 $running = @(docker compose ps --status running --services | ForEach-Object { $_.Trim() })
 $missing = @($want | Where-Object { $running -notcontains $_ })
 if ($missing) { Write-Output "not running: $($missing -join ', ')"; exit 1 }
-foreach ($port in 10000, 6006) {
+foreach ($port in 10000, 80) {
     $c = New-Object Net.Sockets.TcpClient
     try { $c.Connect('127.0.0.1', $port) } catch { Write-Output "nothing answers on port $port"; exit 1 } finally { $c.Close() }
 }
@@ -572,7 +576,7 @@ it. This puts a shortcut in your Startup folder that waits for Docker and
 ros-server, then starts the client (the same shortcut Install.ps1 makes).
 
 ```detect powershell
-$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'rl-roboracer Unity client.lnk'
+$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'rl-robotlab Unity client.lnk'
 if (-not (Test-Path $lnk)) { exit 1 }
 $gym = Join-Path (Split-Path '{{INSTALL_DIR}}') 'UnityBinary\wCourseJetRacer2026.09.20-v13\robotaxi gym level 1.exe'
 $want = "-NoProfile -ExecutionPolicy Bypass -File `"{{INSTALL_DIR}}\scripts\install\Start-ClientAtLogon.ps1`" -N 1 -GymSource `"$gym`""
@@ -580,19 +584,19 @@ if ((New-Object -ComObject WScript.Shell).CreateShortcut($lnk).Arguments -ne $wa
 ```
 
 ```install powershell
-$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'rl-roboracer Unity client.lnk'
+$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'rl-robotlab Unity client.lnk'
 $gym = Join-Path (Split-Path '{{INSTALL_DIR}}') 'UnityBinary\wCourseJetRacer2026.09.20-v13\robotaxi gym level 1.exe'
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
 $s.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"{{INSTALL_DIR}}\scripts\install\Start-ClientAtLogon.ps1`" -N 1 -GymSource `"$gym`""
 $s.WorkingDirectory = '{{INSTALL_DIR}}'
 $s.WindowStyle = 7
-$s.Description = 'Waits for Docker and ros-server, then supervises the rl-roboracer Unity client (gym switching on).'
+$s.Description = 'Waits for Docker and ros-server, then supervises the rl-robotlab Unity client (gym switching on).'
 $s.Save()
 ```
 
 ```verify powershell
-$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'rl-roboracer Unity client.lnk'
+$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'rl-robotlab Unity client.lnk'
 if (-not (Test-Path $lnk)) { Write-Output "missing $lnk"; exit 1 }
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
 if ($s.Arguments -notlike '*Start-ClientAtLogon.ps1*') { Write-Output "$lnk does not start Start-ClientAtLogon.ps1"; exit 1 }
@@ -600,15 +604,15 @@ Write-Output "Startup shortcut: $lnk"
 ```
 
 ```uninstall powershell
-Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Startup')) 'rl-roboracer Unity client.lnk') -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Startup')) 'rl-robotlab Unity client.lnk') -Force -ErrorAction SilentlyContinue
 ```
 
 ## Step 15: firstjob - First TRAIN job
 
 Why: proves the whole stack trains: queues a 2,000-iteration TRAIN job on
 the starter gym (scripts\install\first-job.js), waits for the trainer to
-pick it up, for two training iterations to finish, and for TensorBoard
-(http://localhost:6006) to show its scalars. The job keeps running after
+pick it up, for two training iterations to finish, and for the dashboard
+to read its training curves. The job keeps running after
 the install; watch it on the dashboard. Skip with `--skip firstjob`.
 
 ```detect powershell
@@ -658,20 +662,18 @@ do {
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 $pw = (Get-Content '{{INSTALL_DIR}}\.env' | Where-Object { $_ -match '^\s*MONGO_ROOT_PASSWORD\s*=' } | Select-Object -Last 1)
 $pw = if ($pw) { ($pw -split '=', 2)[1].Trim() } else { 'example' }
-$status = "$(docker compose exec -T mongo mongosh --quiet -u root -p $pw --authenticationDatabase admin robotaxi --eval "const j = db.jobs.findOne({installer_first_job: true}, {status: 1}); print(j ? j.status : 'NONE')" 2>$null | Select-Object -Last 1)".Trim()
-if ($status -notin 'IN_PROGRESS', 'DONE') { Write-Output "first job status: $status"; exit 1 }
+$job = "$(docker compose exec -T mongo mongosh --quiet -u root -p $pw --authenticationDatabase admin robotaxi --eval "const j = db.jobs.findOne({installer_first_job: true}, {status: 1}); print(j ? j._id.toString() + ' ' + j.status : 'NONE')" 2>$null | Select-Object -Last 1)".Trim()
+$id, $status = $job -split ' ', 2
+if ($status -notin 'IN_PROGRESS', 'DONE') { Write-Output "first job status: $job"; exit 1 }
 $deadline = (Get-Date).AddMinutes(4)
 do {
     $tags = 0
-    try {
-        $runs = Invoke-RestMethod -Uri 'http://127.0.0.1:6006/data/plugin/scalars/tags' -TimeoutSec 10
-        foreach ($run in $runs.PSObject.Properties) { $tags += @($run.Value.PSObject.Properties).Count }
-    } catch { }
-    if ($tags -gt 0) { Write-Output "first job $status; $tags TensorBoard scalar tags"; exit 0 }
+    try { $tags = @((Invoke-RestMethod -Uri "http://127.0.0.1/api/v1/runs/$id/tags" -TimeoutSec 10).tags).Count } catch { }
+    if ($tags -gt 0) { Write-Output "first job $status; $tags metric tags"; exit 0 }
     Start-Sleep -Seconds 15
 } while ((Get-Date) -lt $deadline)
 $log = '{{INSTALL_DIR}}\rl_agent\robotaxi.out'
 if (Test-Path $log) { Get-Content $log -Tail 120 }
-Write-Output 'training is running but TensorBoard shows no scalars (http://127.0.0.1:6006)'
+Write-Output "training is running but the dashboard reads no metrics for it (http://localhost/app/runs/$id)"
 exit 1
 ```

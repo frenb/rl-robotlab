@@ -1,8 +1,6 @@
 // HTTP client for the dashboard API (dashboard/src/server.ts).
 
 export const BASE_URL = (process.env.ROBORACER_DASHBOARD_URL || 'http://localhost').replace(/\/+$/, '');
-export const LOG_WS_URL = process.env.ROBORACER_LOG_WS_URL
-  || BASE_URL.replace(/^http/, 'ws').replace(/:\d+$/, '') + ':8080';
 
 const TIMEOUT_MS = 60000;
 
@@ -46,6 +44,7 @@ async function request(method, path, { query, body } = {}) {
 
 export const get = (path, query) => request('GET', path, { query });
 export const post = (path, body) => request('POST', path, { body: body || {} });
+export const patch = (path, body) => request('PATCH', path, { body: body || {} });
 
 /** A change-gated list endpoint (get_jobs, get_models, ...), always fresh. */
 export async function list(path) {

@@ -56,7 +56,7 @@ services:
       - type: bind
         source: ../saved_models/microduck
         target: /microduck_rl/logs
-      # rl-roboracer side of the integration (the duck job worker lands in
+      # rl-robotlab side of the integration (the duck job worker lands in
       # rl_agent/duck); mounted like sim-controller's /python_ws/src.
       - type: bind
         source: ./rl_agent
@@ -83,7 +83,7 @@ services:
         source: duck_warp_cache
         target: /root/.cache/warp
     # mjlab's browser viewer (viser), started on demand by
-    # scripts/Watch-Duck.ps1. Host 8080 is the dashboard's log socket.
+    # scripts/Watch-Duck.ps1, on host 8090.
     ports:
       - "8090:8080"
       # Unity duck server's viewer feed: MicroDuck.exe -attach 127.0.0.1:7710

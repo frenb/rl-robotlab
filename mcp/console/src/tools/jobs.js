@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import path from 'node:path';
-import { get, list, post, LOG_WS_URL, BASE_URL } from '../api.js';
-import { defineTool, confirmArg, requireConfirm, objectIdTime, resolveRow, compact, truncate, robotArg, robotOf, isMjlab } from '../util.js';
+import { get, list, post, BASE_URL } from '../api.js';
+import { defineTool, confirmArg, requireConfirm, objectIdTime, resolveRow, compact, truncate, robotArg, robotOf, isDuck, isMjlab } from '../util.js';
 import { buildJob, insertJob, pickLists, ALL_JOB_TYPES, MODEL_TYPES, JOB_STATUSES, COURSES } from '../jobPayload.js';
 import { planJob, loadPlanData, DEFAULTABLE } from '../jobDecisions.js';
-import { composeExec, composeLogs, REPO_ROOT } from '../docker.js';
+import { REPO_ROOT } from '../docker.js';
 
 const JOB_ROW_KEYS = [
   'status', 'job_type', 'model_type', 'course_type', 'gym_name', 'reward_design_name',
@@ -14,8 +14,10 @@ const JOB_ROW_KEYS = [
 // What rl_agent/duck/worker.py writes in place of the car fields.
 const DUCK_ROW_KEYS = [
   'status', 'job_type', 'name', 'task_id', 'gym_name', 'reward_design_name', 'experiment_design_name',
-  'percent_complete', 'max_iterations', 'duck_iteration', 'mean_reward', 'mean_episode_length',
-  'duck_checkpoint', 'checkpoint', 'onnx_location', 'progress_video', 'started_at', 'ended_at', 'paused_at_step',
+  'percent_complete', 'max_iterations', 'duck_iteration', 'openbeni_iteration',
+  'mean_reward', 'mean_episode_length',
+  'duck_checkpoint', 'openbeni_checkpoint', 'checkpoint', 'onnx_location',
+  'progress_video', 'started_at', 'ended_at', 'paused_at_step',
 ];
 const DUCK_EVAL_KEYS = ['episodes', 'falls', 'fall_rate', 'mean_return', 'mean_episode_length', 'num_envs', 'steps'];
 
@@ -24,6 +26,7 @@ const DUCK_EVAL_KEYS = ['episodes', 'falls', 'fall_rate', 'mean_return', 'mean_e
 const SAVED_MODELS_HOST = path.join(REPO_ROOT, '..', 'saved_models');
 const MEDIA_ROOTS = [
   ['/microduck_rl/logs/', path.join(SAVED_MODELS_HOST, 'microduck')],
+  ['/openbeni_rl/logs/', path.join(SAVED_MODELS_HOST, 'openbeni')],
   ['/saved_models/', SAVED_MODELS_HOST],
 ];
 
@@ -66,7 +69,7 @@ export function jobRow(j) {
   if (media) row.media = { ...media, training_clips: media.training_clips && media.training_clips.length };
   if (j.eval_error) row.eval_error = truncate(j.eval_error, 300);
   if (j.curriculum_run_id) {
-    row.curriculum = compact(j, ['curriculum_run_id', 'curriculum_name', 'curriculum_stage_id', 'curriculum_attempt', 'curriculum_role']);
+    row.curriculum = compact(j, ['curriculum_run_id', 'curriculum_name', 'curriculum_stage_id', 'curriculum_stage_name', 'curriculum_attempt', 'curriculum_role']);
   }
   return row;
 }
@@ -91,7 +94,7 @@ function groupByCurriculum(rows) {
 
 const byNewest = (a, b) => String(b._id).localeCompare(String(a._id));
 
-// Per-action eligibility, as the Jobs tab buttons apply it.
+// Per-action eligibility, as the Runs page buttons apply it.
 // The duck worker honours the same statuses (it pauses at its next checkpoint).
 const STATUS_ACTIONS = {
   restart: { to: 'NOT_STARTED', from: null, why: 're-queue from the start' },
@@ -128,7 +131,7 @@ const jobInput = {
   eval_stage_start: z.number().optional(),
   eval_stage_end: z.number().optional(),
   // ---- microduck ----
-  name: z.string().optional().describe('microduck: job name shown on the Jobs tab.'),
+  name: z.string().optional().describe('microduck: job name shown on the Runs page.'),
   init_from: z.string().optional().describe('microduck TRAIN: warm-start from this model (list_models robot: microduck); '
     + '"none" trains from scratch. Omitted: the gym\'s default_init_checkpoint, if any.'),
   model: z.string().optional().describe('microduck EVAL / EXPORT / VIDEO: the model (checkpoint) to use.'),
@@ -146,23 +149,24 @@ const jobInput = {
   eval_steps: z.number().int().optional().describe('microduck EVAL: control steps at 50 Hz (default 1000 = 20 s).'),
 };
 
-/** Last messages from the log viewer's WebSocket (tail -F -n 100 of /tmp/trainer.log). */
-function readTrainerLog(waitMs) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let ws;
-    try { ws = new WebSocket(LOG_WS_URL); } catch (e) { reject(e); return; }
-    const done = () => { try { ws.close(); } catch { /* closing */ } resolve(chunks.join('')); };
-    const timer = setTimeout(done, waitMs);
-    ws.onmessage = (ev) => chunks.push(String(ev.data));
-    ws.onerror = () => { clearTimeout(timer); reject(new Error(`log stream unreachable at ${LOG_WS_URL}`)); };
-  });
-}
+// Per-call byte window of /api/v1 log reads.
+const LOG_WINDOW_BYTES = 256 * 1024;
 
+/**
+ * The end of a log through the dashboard: its last 64 KB, or with grep the
+ * last 256 KB so matches have more to search.
+ */
+async function tailLog(path, wide) {
+  const tail = await get(path);
+  if (!tail.available) return { text: '', note: tail.note || 'no log' };
+  if (!wide || tail.start === 0) return { text: tail.text, note: tail.note };
+  const more = await get(path, { offset: Math.max(0, tail.end - LOG_WINDOW_BYTES) });
+  return { text: more.reset ? tail.text : more.text, note: tail.note };
+}
 export function register(server) {
   defineTool(server, 'list_jobs', {
     title: 'List jobs',
-    description: 'Jobs tab: the job queue, newest first, as compact rows. Use get_job for the full document.',
+    description: 'Runs page: the job queue, newest first, as compact rows. Use get_job for the full document.',
     readOnly: true,
     input: {
       status: z.array(z.string()).optional().describe('e.g. ["IN_PROGRESS","NOT_STARTED"]. Statuses: NOT_STARTED, IN_PROGRESS, PAUSE_REQUESTED, PAUSED, DONE, FAILED, CANCELLED.'),
@@ -172,7 +176,7 @@ export function register(server) {
       task_id: z.string().optional().describe('microduck mjlab task id (substring match).'),
       curriculum_run: z.string().optional().describe('Only the jobs of this curriculum run (full id, see list_curriculum_runs).'),
       group_curricula: z.boolean().optional().describe('Fold each curriculum run\'s jobs into one entry with a jobs list, '
-        + 'as the Jobs tab does. limit then counts entries.'),
+        + 'as the Runs page does. limit then counts entries.'),
       limit: z.number().int().min(1).max(500).optional().describe('Default 50.'),
     },
   }, async ({ status, robot, job_type, course_type, task_id, curriculum_run, group_curricula, limit = 50 }) => {
@@ -211,7 +215,7 @@ export function register(server) {
 
   defineTool(server, 'create_job', {
     title: 'Create job',
-    description: 'Jobs tab "New job", for either robot. roboracer (car, Unity + SAC): TRAIN, DEMO, EVAL or BC_TRAINING_ONLY; '
+    description: 'Runs page "New run", for either robot. roboracer (car, Unity + SAC): TRAIN, DEMO, EVAL or BC_TRAINING_ONLY; '
       + 'refuses a TRAIN job whose experiment design needs demos the course lacks, unless demo or allow_no_demos is given. '
       + 'microduck (mjlab + PPO): TRAIN on a gym (task), or EVAL / EXPORT / VIDEO of a model. Builds the same document as '
       + 'the dialog (blank fields omitted so the worker applies its defaults); arguments for the other robot are dropped '
@@ -253,7 +257,7 @@ export function register(server) {
 
   defineTool(server, 'update_jobs', {
     title: 'Restart / pause / resume / mark done / cancel jobs',
-    description: 'Jobs tab status buttons, for one or more jobs. Each action only touches eligible jobs, as the buttons do: '
+    description: 'Runs page status buttons, for one or more jobs. Each action only touches eligible jobs, as the buttons do: '
       + 'pause = IN_PROGRESS only; resume = PAUSED only; cancel = NOT_STARTED, IN_PROGRESS or PAUSE_REQUESTED; '
       + 'restart and mark_done apply to any job. Ineligible jobs are reported as skipped.',
     input: {
@@ -280,7 +284,7 @@ export function register(server) {
 
   defineTool(server, 'delete_jobs', {
     title: 'Delete jobs',
-    description: 'Jobs tab "Delete": remove job documents from MongoDB. Model checkpoints the jobs wrote are kept. Requires confirm: true.',
+    description: 'Runs page "Delete": remove job documents from MongoDB. Model checkpoints the jobs wrote are kept. Requires confirm: true.',
     destructive: true,
     input: { ids: z.array(z.string()).min(1), confirm: confirmArg },
   }, async ({ ids, confirm }) => {
@@ -302,58 +306,45 @@ export function register(server) {
 
   defineTool(server, 'get_queue_state', {
     title: 'Get queue state',
-    description: 'Whether the job queue is paused (Jobs tab Pause/Resume queue toggle).',
+    description: 'Whether the job queue is paused, how many runs are running and queued, and which robots\' workers are online (heartbeat within 2 minutes).',
     readOnly: true,
-  }, async () => get('/get_queue_state'));
+  }, async () => {
+    const q = await get('/api/v1/queue');
+    return { paused: q.paused, running: q.running.length, queued: q.queued.length, workers: q.workers };
+  });
 
   defineTool(server, 'set_queue_paused', {
     title: 'Pause or resume the queue',
-    description: 'Jobs tab queue toggle. Pausing stops the trainer picking up new jobs and pause-requests running ones '
+    description: 'Runs page queue toggle. Pausing stops the trainer picking up new jobs and pause-requests running ones '
       + '(they checkpoint). Resuming re-queues only the jobs the queue pause stopped; jobs paused by hand stay paused.',
     input: { paused: z.boolean() },
-  }, async ({ paused }) => post('/set_queue_state', { paused }));
+  }, async ({ paused }) => {
+    const q = await post('/api/v1/queue', { paused });
+    return { paused: q.paused, changed: q.changed, running: q.running.length, queued: q.queued.length };
+  });
 
   defineTool(server, 'tail_trainer_log', {
     title: 'Tail trainer log',
-    description: 'Logs tab: recent trainer output. roboracer: the car trainer\'s /tmp/trainer.log (the stream starts with the '
-      + 'last 100 lines, then adds whatever is written during wait_ms). microduck: a duck job\'s own log in duck-trainer '
-      + '(the given job, else the running one), or the duck worker\'s output when no duck job is running.',
+    description: 'Recent trainer output. With job (any robot): that run\'s own log. Without: the robot\'s running job\'s log, '
+      + 'else its worker\'s shared output (roboracer: /tmp/trainer.log from the car trainer).',
     readOnly: true,
     input: {
       robot: robotArg.optional().describe('Default roboracer, or the job\'s robot when job is given.'),
-      job: z.string().optional().describe('microduck: job id or suffix whose log to read.'),
+      job: z.string().optional().describe('Job id or suffix whose log to read.'),
       lines: z.number().int().min(1).max(1000).optional().describe('Lines to return from the end. Default 100.'),
-      wait_ms: z.number().int().min(500).max(60000).optional().describe('roboracer: how long to listen. Default 2000.'),
       grep: z.string().optional().describe('Only lines matching this regular expression (case-insensitive).'),
     },
-  }, async ({ robot, job, lines = 100, wait_ms = 2000, grep }) => {
-    let text;
-    let source = null;
+  }, async ({ robot, job, lines = 100, grep }) => {
+    const r = robot || 'roboracer';
     let target = null;
-    const serviceFor = (r) => (r === 'microduck' ? 'duck-trainer' : `${r}-trainer`);
-    if (job || (robot && isMjlab(robot))) {
-      const jobs = await list('/get_jobs');
-      target = job
-        ? resolveRow(jobs, job, 'job')
-        : jobs.filter((j) => robotOf(j) === robot && j.status === 'IN_PROGRESS').sort(byNewest)[0];
-      if (target && !isMjlab(target)) {
-        if (robot && isMjlab(robot)) throw new Error(`job ${target._id} is a roboracer job`);
-        target = null;
-      }
+    if (job) {
+      target = resolveRow(await list('/get_jobs'), job, 'job');
+    } else if (isMjlab(r)) {
+      target = (await list('/get_jobs')).filter((j) => robotOf(j) === r && j.status === 'IN_PROGRESS').sort(byNewest)[0] || null;
     }
-    if (target) {
-      if (!target.log_path) throw new Error(`job ${target._id} has no log yet (status ${target.status})`);
-      const n = grep ? 5000 : lines;
-      const svc = serviceFor(robotOf(target));
-      text = await composeExec(['-T', svc, 'tail', '-n', String(n), target.log_path], { timeoutMs: 30000 });
-      source = `${target.log_path} (job ${target._id}, ${target.status})`;
-    } else if (robot && isMjlab(robot)) {
-      const svc = serviceFor(robot);
-      text = await composeLogs(svc, grep ? 5000 : lines, { timeoutMs: 30000 });
-      source = `${svc} worker output (no ${robot} job is running)`;
-    } else {
-      text = await readTrainerLog(wait_ms);
-    }
+    const path = target ? `/api/v1/runs/${target._id}/logs` : `/api/v1/system/logs/${r === 'roboracer' ? 'car' : r}`;
+    const { text, note } = await tailLog(path, !!grep);
+    const source = target ? `job ${target._id} (${robotOf(target)}, ${target.status})` : `the ${r} worker's shared output`;
     let out = text.split(/\r?\n/);
     if (out.length && out[out.length - 1] === '') out.pop();
     if (grep) {
@@ -361,6 +352,6 @@ export function register(server) {
       out = out.filter((l) => re.test(l));
     }
     const body = out.slice(-lines).join('\n') || '(no log lines)';
-    return source ? `[${source}]\n${body}` : body;
+    return `[${source}${note ? `: ${note}` : ''}]\n${body}`;
   });
 }

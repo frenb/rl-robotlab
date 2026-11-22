@@ -1,69 +1,73 @@
 # Dashboard: architecture notes and limitations
 
-The dashboard is an Express + static-HTML app (`dashboard/`, compose service
-`dashboard` on **`node:20`**, `npm start` → `node ./build/index.js`). Pages are
-static HTML with inline JS (edits are live on browser reload); only `server.ts`
-changes need a **dashboard container restart** to recompile. `prestart` runs
-`npm install` **only when `node_modules` is missing**, then always `tsc` — so a
-restart is a fast offline compile rather than a network-dependent reinstall
-(after bumping the base image, do a one-time `rm -rf node_modules && npm install`
-so ABI-sensitive deps rebuild).
+The dashboard (`dashboard/`, compose service `dashboard` on **`node:20`**, port
+80) is an Express server (`dashboard/src`) plus a React app
+(`dashboard/app`, served at **`/app`**). `npm start` runs `prestart`, which does
+`npm install` **only when `node_modules` is missing** and then always `tsc`, so
+a container restart is a fast offline compile (after bumping the base image, do
+a one-time `rm -rf node_modules && npm install` so ABI-sensitive deps rebuild).
+Server changes need a **dashboard container restart**; app changes need
+`cd dashboard/app; npm run build` and a browser reload.
 
-![Weakness tab: per-cell weakness blended from crash rate, slowness and pre-crash risk, with crash sites marked](images/weakness-map.png)
+The app's pages: Home, Runs (queue, launch, per-run curves, logs and media),
+Compare, Models (and the leaderboard), Curricula, Design (gyms, reward and
+experiment designs, demos), Insights, Lab (MadScientist) and System. The old
+Golden Layout pages are gone; their URLs (`/`, `/jobs`, `/logs`, `/weakness`,
+`/madscientist`, `/models`, `/analysis`, ...) redirect to the matching `/app`
+page.
+
+![Insights: the track coloured by crashes per visit, crash hotspots numbered in red and goal gates ringed](images/insights-crash-map.png)
 
 A few architectural points are worth knowing:
 
+- **Two APIs.** The app reads typed routes under **`/api/v1`**
+  (`dashboard/src/api/*.ts`: runs, queue, launch, metrics, compare, models,
+  curricula, designs, lab, insights, system) and a live WebSocket at
+  `/api/v1/live` for run updates. Design, gym, demo and curriculum *writes*
+  still go through the classic routes in `server.ts` (`/add_*`, `/update_*`,
+  `/archive_*`), which validate and lint; the app calls them directly. The MCP
+  console (`mcp/console`) uses `/api/v1` for the queue, logs, weakness analysis,
+  MadScientist and model promotion, and the classic routes for the rest.
+- **What the server can't see.** The container mounts only `./dashboard`,
+  `./rl_agent`, `./robots`, `../saved_models` and the `tmpdata` volume on
+  `/tmp`, with no Docker socket. Unity client processes, local gym builds and
+  release uploads are therefore handled by MCP tools that run on the Windows
+  host (`get_unity_clients`, `set_unity_clients`, `list_gym_builds`,
+  `package_gym`, `add_gym_to_release`). The System page shows what the server
+  can see: worker heartbeats, the queue, disk space, Mongo, the gym each Unity
+  supervisor is told to run, GitHub releases (set `GITHUB_TOKEN` for a private
+  repo), and the workers' shared logs on `/tmp`.
 - **Crash resilience.** The server installs process-level `uncaughtException` /
   `unhandledRejection` guards, and every Mongo request handler responds with a
-  `500` instead of `throw err`. Historically a single transient Mongo error (a
-  change-stream reconnect, replica-set blip, connection reset) threw inside an
-  async driver callback → on Node ≥15 an unhandled rejection **terminated the
-  process**; `restart: always` then bounced the container through a full
-  `npm install` + `tsc` before serving again — the classic "dashboard freezes /
-  locks up mid-demo". Errors are now logged and swallowed so one bad query can't
-  take the whole UI down. The startup `MongoClient.connect` retries with backoff
-  instead of throwing (no boot crash-loop if mongo lags the dashboard).
-- **Change-gated GETs (per-client version cursor).** List endpoints
-  (`/get_jobs`, `/get_models`, `/get_experiment_designs`, …) are gated by
-  `needsUpdate(req, res, changed, coll)`. A MongoDB **change stream**
-  (`superviseChangeStream`, requires Mongo be a replica set) bumps a
-  monotonically-increasing **per-collection version** on every write, returned on
-  every response (data *and* `NO_CHANGES`) via the **`X-Coll-Version`** header.
-  A polling client sends **`?since=<last-seen-version>`** and gets `NO_CHANGES`
-  unless it's actually behind. Because the decision is derived from the client's
-  own cursor — not a single shared `changed` boolean — **N tabs poll cheaply
-  without racing each other into a false `NO_CHANGES`**. The WebSocket change
-  broadcast also carries the new version so a WS-applied change advances the
-  cursor (no redundant refetch). Legacy fallbacks still work: `?force=true`
-  always sends (used by one-shot on-demand loads like the New-job modal
-  dropdowns), and a request with neither `since` nor `force` uses the old shared
-  `changed` flag. This replaced the previous scheme where every polling tab had
-  to pass `?force=true` and re-pull the **entire** `jobs` collection (no
-  pagination, ~1k docs) every few seconds — the `jobs` and `weakness` tabs now
-  ride the cursor. `/get_jobs` still returns the whole collection when it *does*
-  send (no server-side pagination yet).
-- **Undated jobs sort to the bottom.** Jobs created by the New-job form,
-  `Clone-Job`, the Models-tab EVAL path, and trainer-completed jobs typically
-  carry **no `create_date` / `update_date`** (only the old MadScientist
-  orchestrator stamped `create_date`). Any recency sort keyed on those fields
-  collapses undated jobs to epoch 0 and buries brand-new jobs. The Weakness tab
-  works around this with an **ObjectId-embedded-timestamp fallback**
-  (`jobTimeKey`) — other tabs that sort by date may still exhibit the "my
-  just-finished job isn't at the top" symptom. The robust fix is to stamp
-  `create_date` in `/add_job`.
-- **Large job pickers.** With ~1k jobs, plain `<select>` job dropdowns are
-  unwieldy; the Weakness tab replaced its selector with a searchable
-  `<input list>` + `<datalist>` combobox (label→id map, ObjectId-recency sort).
-  Native `<datalist>` rendering varies across browsers (weaker on Safari).
+  `500` instead of `throw err`. A single transient Mongo error (a change-stream
+  reconnect, replica-set blip, connection reset) used to terminate the process
+  and bounce the container. The startup `MongoClient.connect` retries with
+  backoff instead of throwing, so there is no boot crash-loop if mongo lags.
+- **Change-gated classic GETs.** The classic list routes (`/get_jobs`,
+  `/get_models`, `/get_experiment_designs`, ...) are gated by
+  `needsUpdate(req, res, changed, coll)`. A MongoDB change stream
+  (`superviseChangeStream`, which needs Mongo to be a replica set and recreates
+  dead streams with backoff) bumps a per-collection version on every write,
+  returned as the **`X-Coll-Version`** header. `?since=<version>` answers
+  `NO_CHANGES` unless the caller is behind; `?force=true` always sends. These
+  routes return the whole collection; the `/api/v1` equivalents paginate.
+- **Weakness analysis** (`dashboard/src/api/weakness.ts`) reads the segment-end
+  trajectory logs (`logs.position_history`) of a car run's most recent
+  episodes. The grid view scores cells by crash rate, slowness and pre-crash
+  risk and groups weak cells into hotspots. The gate view ranks goal gates by
+  crash rate (95% Wilson ranges, shrunk toward the track average) and proposes
+  a start-gate distribution aimed at the hard ones. The trainer can't apply
+  that distribution yet: Unity picks a uniformly random start gate on every
+  reset. The gate statistics take several seconds on a long run because they
+  scan `position_history` strings.
 - **`/add_job` inserts `req.body` verbatim** with no server-side schema
-  validation. This is deliberate (new job fields are additive and just flow to
-  the trainer), but it means typos in field names fail silently rather than
-  erroring — the trainer falls back to defaults.
-- **Eval modal stage source.** The Models-tab Eval "Curriculum sweep" Start/End
-  stage dropdowns are populated from the **selected model's experiment-design
-  `curriculum_stages`** — gym docs carry no stage data. The raw per-edge chicane
-  counts aren't exposed as free-form inputs; a curriculum sweep is the only way
-  to eval the exact chicane geometry the trainer curriculum used.
-- **Mad Scientist tab has no live budget gauge** — cost is shown per-proposal
-  only; `/madscientist/decide` sets `status=approved` but does **not** trigger
-  the orchestrator directly (the Python worker picks it up on its next poll).
+  validation, so typos in field names fail silently (the trainer falls back to
+  defaults). The app and the MCP console build jobs through `POST /api/v1/runs`
+  and `jobPayload.js`, which do validate.
+- **Eval modal stage source.** The Models page's eval "curriculum sweep" start
+  and end stages come from the **selected model's experiment-design
+  `curriculum_stages`**; gym docs carry no stage data.
+- **MadScientist decisions don't wake the orchestrator.** Approving sets
+  `status=approved`; the Python worker picks it up on its next poll. Email
+  magic links (`/madscientist/act?token=...`) still land on the server, and its
+  "Open the dashboard" button goes to `/app/lab`.

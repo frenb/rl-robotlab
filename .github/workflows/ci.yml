@@ -35,7 +35,7 @@ jobs:
           cache-dependency-path: docker/madscientist/requirements.txt
       - run: pip install -r docker/madscientist/requirements.txt pytest numpy
       - run: python scripts/ci/run_madscientist_tests.py
-      - run: python -m pytest -q rl_agent/test_robots_registry.py rl_agent/test_job_queue.py rl_agent/duck/test_launch.py rl_agent/duck/test_gyms.py rl_agent/duck/test_reward_design.py rl_agent/duck/test_experiment_design.py rl_agent/openbeni/test_launch.py rl_agent/openbeni/test_experiment_design.py rl_agent/openbeni/test_gyms.py rl_agent/openbeni/test_baseline.py rl_agent/specs/test_specs.py rl_agent/test_car_clips.py rl_agent/test_media.py rl_agent/curriculum/test_curriculum.py
+      - run: python -m pytest -q rl_agent/test_robots_registry.py rl_agent/test_job_queue.py rl_agent/duck/test_launch.py rl_agent/duck/test_gyms.py rl_agent/duck/test_reward_design.py rl_agent/duck/test_experiment_design.py rl_agent/openbeni/test_launch.py rl_agent/openbeni/test_experiment_design.py rl_agent/openbeni/test_gyms.py rl_agent/openbeni/test_baseline.py rl_agent/specs/test_specs.py rl_agent/test_car_clips.py rl_agent/test_media.py rl_agent/curriculum/test_curriculum.py rl_agent/mjlab_core/test_stage_settings.py rl_agent/openbeni/test_jumps.py
 
   dashboard:
     name: Dashboard build (TypeScript)
@@ -50,6 +50,22 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  dashboard-app:
+    name: Dashboard app (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/app/package-lock.json
       - run: npm ci
       - run: npm run build
 

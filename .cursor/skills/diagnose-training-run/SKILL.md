@@ -20,7 +20,7 @@ Uses the `roboracer-console` MCP tools. The tools enforce their own rules (eligi
 **1. Pick the job.** Use the id the user gave (the last 8 characters are enough). Otherwise `list_jobs` with `job_type: "TRAIN"` and take the running job, else the newest. Say which job you chose.
 
 **2. Did it run cleanly?** `get_job`, then read `status`, `percent_complete`, `training_steps` against `num_iterations`, `eval_error`, `paused_at_step`, and the designs and gym used.
-- `FAILED`, or `DONE` well short of its iterations: `tail_trainer_log` with `grep: "error|exception|traceback"`, then without `grep` for context. The log holds the trainer's latest output only, so it explains the current or most recent job; say so if the job you're diagnosing is older.
+- `FAILED`, or `DONE` well short of its iterations: `tail_trainer_log` with the job and `grep: "error|exception|traceback"`, then without `grep` for context. That reads the job's own log; car jobs that finished before per-run logs were kept have none, and the tool says so.
 - `IN_PROGRESS`: a progress report, not a verdict. Everything below is provisional.
 
 **3. How good are its models?** `list_models` with `job_id`. For models with evals, `get_model` gives the pooled score and 95% confidence interval.
@@ -38,7 +38,7 @@ Reading the weakness map:
 - `crash` layer = where crashes happen; `risk` layer = where approaches that end in crashes run. A high-risk cell upstream of a crash cluster means the mistake starts earlier (line choice or speed) than where the car hits.
 - `steps_to_clear_vs_median` well above 1 with a low crash rate = slow but safe there (often over-braking); high crash rate with a low step ratio = carrying too much speed.
 
-If `get_difficult_sections` reports that the dashboard has no `/weakness_by_gate` endpoint, carry on with `get_weakness_map` alone and mention that the dashboard needs restarting from a checkout that has it.
+The same analysis is on the dashboard's Insights page (`/app/insights?run=<job id>`); link it so the user can explore the map.
 
 **5. Write the verdict.** Lead with one sentence: did it work and how well. Then:
 

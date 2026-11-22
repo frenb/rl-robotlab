@@ -71,16 +71,17 @@ switched to it on 2026-07-19 (see the comment in `server.ts`) because
 manual restart left the panel frozen on a stale file with no indication
 anything was wrong.
 
-TensorBoard at `http://localhost:6006/` will show one run with `metrics/`,
-`eval/`, `train/`, and `learner/train/` summaries. The dashboard at
-`http://localhost:80/` browses past runs (archived to `/tmp/jobsdata/` by
-the new TRAIN job's startup cleanup).
+The run's page at `http://localhost/app/runs/<job_id>` (Metrics tab) charts its
+`metrics/`, `eval/`, `train/`, and `learner/train/` summaries, read straight
+from the event files in `/tmp/active` and, once archived by the next TRAIN
+job's startup cleanup, `/tmp/jobsdata/`. `http://localhost/app/compare`
+overlays any runs, of any robot.
 
-#### What keeps the TensorBoard view honest
+#### Event-file housekeeping
 
-TB scans two directories — `/tmp/active` as the `current` experiment and
-`/tmp/tb_compare` as `compare` — so *anything* left in either is drawn.
-Two pieces of housekeeping keep that to what you asked for:
+The dashboard finds a run's curves under `/tmp/active/<job_id>*` or
+`/tmp/jobsdata/<job_id>`. Two pieces of housekeeping keep those folders
+bounded without losing runs you still care about:
 
 - **EVAL jobs archive their own summaries when they finish.** An eval writes
   `/tmp/active/<job_id>_eval/` so you can watch it live, then moves it to
@@ -94,8 +95,7 @@ Two pieces of housekeeping keep that to what you asked for:
   age, so `keep` is a floor rather than a cap. Recency alone was the wrong
   rule: eval buckets churn daily while the training runs worth comparing are
   old by definition, so model archives were being evicted by eval noise. A
-  pruned bucket cannot be opened in the dashboard's **Compare in Analysis**
-  view — the selection resolves to `missing` and the pane renders nothing.
+  pruned run has no curves on its run page or in Compare.
   Model *weights* live on a separate mount (`/saved_models`) and were never at
   risk; only the scalar history is lost.
 
@@ -193,7 +193,7 @@ docker compose -f docker-compose.yml -f compose/scale.yml exec sim-controller `
 .\scripts\Start-Stack.ps1 -SkipUnity
 
 # Recycle just the Unity clients without touching docker (keeps reverb /
-# MongoDB / tensorboard state warm)
+# MongoDB / trainer state warm)
 .\scripts\Restart-Clients.ps1
 
 # Custom 4-wide single-row layout for ultrawide monitors
@@ -216,10 +216,9 @@ docker compose -f docker-compose.yml -f compose/scale.yml exec sim-controller `
 | `ros-server-3`   | 10003 / 50054     | Actor 3: same, scale-overlay                              |
 | `mongo`          | 27017 (localhost) | Job / model / leaderboard storage                         |
 | `mongo-express`  | 8081 (localhost)  | Mongo admin UI                                            |
-| `sim-controller` | 6006              | Tensorboard for the live training run                     |
+| `sim-controller` | none              | The car trainer (`robotaxi.py`)                           |
 | `fly-brain`      | 50061             | Frozen fly connectome over gRPC (see [fly brain](fly-brain.md)) |
-| `dashboard`      | 80                | Golden Layout UI (iframes Tensorboard, logs, jobs, models) |
-| `dashboard`      | 8080              | WebSocket tail of `sim-controller:/tmp/trainer.log`       |
+| `dashboard`      | 80                | The app at `/app`, `/api/v1`, and the classic API routes  |
 
 ## Migrating off the legacy Bitnami Mongo image
 

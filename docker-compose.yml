@@ -4,7 +4,7 @@
 #
 # Bind-mounts assume this layout (LATEST/ is the repo's parent dir):
 #   LATEST/
-#     rl-roboracer/         <- this repo
+#     rl-robotlab/         <- this repo
 #     saved_models/         <- model checkpoints
 #     mongodb/              <- mongo data dir
 #     tfrecords/            <- demo trajectories
@@ -19,7 +19,7 @@ services:
     # also resolves under the short name "ros-server-1" - colliding
     # with the actual ros-server-1 service brought up by compose/scale.yml
     # and silently routing actor-1's worker to actor-0's container.
-    container_name: ${COMPOSE_PROJECT_NAME:-rl-roboracer}-ros-server-base
+    container_name: ${COMPOSE_PROJECT_NAME:-rl-robotlab}-ros-server-base
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -149,8 +149,8 @@ services:
       # move_all_jobs_data) an instant same-filesystem rename instead of
       # the slow cross-bridge copy+delete a Windows bind mount forces
       # (os.rename returns EXDEV across the grpc-fuse bridge). The
-      # dashboard service mounts the SAME volume so its
-      # /tmp/jobsdata -> /tmp/tb_compare symlinks resolve for TensorBoard.
+      # dashboard service mounts the SAME volume to read the event files
+      # under /tmp/active and /tmp/jobsdata for its training curves.
       # Trade-off: /tmp is no longer browsable from Windows Explorer;
       # inspect via `docker compose exec sim-controller ls /tmp/jobsdata`.
       - type: volume
@@ -172,39 +172,19 @@ services:
         source: ./robots
         target: /robots
         read_only: true
-    ports:
-      - "6006:6006"
     # `python -u` forces unbuffered stdout so the dashboard's live log
     # view (which tails this file via WebSocket) updates per-line
     # instead of per-8KB-block. Python switches from line-buffered to
     # block-buffered automatically when it detects stdout is a pipe
     # (via the `| tee`), and -u overrides that.
-    # Tensorboard watches TWO directories:
-    #   /tmp/active        -> "current/<job_id>/..."   the live job
-    #   /tmp/tb_compare    -> "compare/<job_id>/..."   on-demand bucket
-    #
-    # /tmp/active holds the currently-training job's scalars. Anything
-    # else gets moved out by the trainer's move_all_jobs_data() into
-    # /tmp/jobsdata (untouched here, so TB does NOT clutter its
-    # sidebar with every historical run by default).
-    #
-    # /tmp/tb_compare is initially empty; the dashboard server (see
-    # dashboard/src/server.ts::/set_tb_compare_jobs) symlinks selected
-    # /tmp/jobsdata/<job_id> directories into it when the user clicks
-    # "Compare in Analysis" on the Models tab. So the compare bucket
-    # holds exactly the jobs the user is currently looking at - no
-    # more, no less - and the sidebar stays manageable.
-    #
-    # --reload_interval 5 (down from default 30) so newly-symlinked
-    # archived runs show up in TB within ~5s of the user clicking
-    # Compare, rather than the user staring at "no scalars" for up to
-    # half a minute waiting for TB's next filesystem scan.
+    # The trainer writes the live job's event files to /tmp/active and
+    # archives them to /tmp/jobsdata; the dashboard reads both for curves.
     # The output also goes to /tmp/trainer.log: that is the file the
     # dashboard's log viewer tails (see dashboard/src/server.ts), and the
     # same file manual trainer restarts write to.
     # NUM_ENVS (.env) must equal the number of Unity clients: each env drives
     # one client through its own ros-server (compose/scale.yml for 2-4).
-    command: sh -c "(tensorboard --bind_all --logdir_spec=current:/tmp/active,compare:/tmp/tb_compare --reload_multifile true --reload_interval 5 &1> /tmp/tb.log) && cd /python_ws/src && python -u robotaxi.py --num-envs ${NUM_ENVS:-1} 2>&1 | tee robotaxi.out /tmp/trainer.log"
+    command: sh -c "cd /python_ws/src && python -u robotaxi.py --num-envs ${NUM_ENVS:-1} 2>&1 | tee robotaxi.out /tmp/trainer.log"
     # No `links:` block. Compose's legacy links: ["ros-server"] would
     # also auto-add per-link aliases of the form
     #   <linked-container>:<service>-<replica-index>
@@ -223,8 +203,6 @@ services:
     restart: always
     ports:
       - "80:80"
-      - "8080:8080"
-      - "8082:8082"  # WebSocket server for real-time data updates
     environment:
       - DATABASE_NAME=robotaxi
       - MONGODB_URL=${MONGO_URL:-mongodb://root:${MONGO_ROOT_PASSWORD:-example}@mongo:27017/}
@@ -253,10 +231,8 @@ services:
       - type: bind
         source: ../saved_models
         target: /saved_models
-      # Same named volume as sim-controller (see the long note there).
-      # Both services must share it so the dashboard's
-      # /tmp/jobsdata -> /tmp/tb_compare symlinks are visible to the
-      # TensorBoard process running in sim-controller.
+      # Same named volume as sim-controller (see the long note there):
+      # the dashboard reads the car trainer's event files from it.
       - type: volume
         source: tmpdata
         target: /tmp
@@ -406,8 +382,7 @@ services:
       NOTIFICATION_EMAIL: ${NOTIFICATION_EMAIL:-}
       GMAIL_OAUTH_CREDS_PATH: ${GMAIL_OAUTH_CREDS_PATH:-/secrets/gmail_oauth.json}
       # Base URL the email's Approve/Reject/Defer magic-link buttons
-      # point at. HTTP routes are on port 80 (8080 is the WebSocket
-      # server -> "426 Upgrade Required"). localhost works only when
+      # point at: the dashboard on port 80. localhost works only when
       # mail is opened on this host; set to a LAN / Tailscale / tunnel
       # URL to click from a phone.
       DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:-http://localhost}
@@ -478,9 +453,8 @@ services:
 # Named volumes.
 volumes:
   # Shared /tmp for sim-controller + dashboard. Holds the trainer's
-  # live job data (/tmp/active), the archived job buckets
-  # (/tmp/jobsdata), and the on-demand TensorBoard compare bucket
-  # (/tmp/tb_compare). Lives on the Docker VM's native filesystem so
+  # live job data (/tmp/active) and the archived job buckets
+  # (/tmp/jobsdata). Lives on the Docker VM's native filesystem so
   # archive moves are instant renames. Resolves to the Compose volume
   # name "<project>_tmpdata" (rl-roboracer_tmpdata).
   tmpdata:

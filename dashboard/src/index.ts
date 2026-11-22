@@ -2,6 +2,9 @@ import { Server } from 'http';
 import * as os from 'os';
 import { createServer } from './server';
 import { AddressInfo } from 'net';
+import { attachLive } from './api/live';
+import { startCarLogRecorder } from './api/carlogs';
+import { scheduleCarRewardBackfill } from './api/backfill';
 
 export interface Options {
   port?: number;
@@ -39,6 +42,9 @@ export class Dashboard {
         console.log(`http://${address}:${port}`);
       }
     });
+    attachLive(this.server, app.locals.apiContext);
+    startCarLogRecorder(app.locals.apiContext);
+    scheduleCarRewardBackfill(app.locals.apiContext);
   }
 
   getIPAddress(): string[] {

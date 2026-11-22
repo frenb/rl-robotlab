@@ -68,7 +68,8 @@ if (withPaths) {
   });
 }
 await call('get_queue_state', {}, { check: (d) => assert(typeof d.paused === 'boolean', 'paused flag') });
-await call('tail_trainer_log', { lines: 5, wait_ms: 1500 });
+await call('tail_trainer_log', { lines: 5 }, { check: (d) => assert(String(d).startsWith('['), 'source line') });
+await call('tail_trainer_log', { robot: 'openbeni', lines: 5, grep: '.' });
 const models = await call('list_models', { robot: 'roboracer', limit: 5 }, { check: (d) => assert(Array.isArray(d.models), 'models') });
 const anyModel = models.models?.[0];
 if (anyModel) {
@@ -89,7 +90,12 @@ await call('get_experiment_design_schema', { brief: true }, { check: (d) => asse
 const eds = await call('list_experiment_designs');
 await call('list_gyms');
 await call('list_demos');
-await call('list_proposals', { limit: 3 });
+const proposals = await call('list_proposals', { limit: 3 }, { check: (d) => assert(Array.isArray(d.items), 'no items') });
+if (proposals.items?.[0]) {
+  const pid = proposals.items[0].id;
+  await call('get_proposal', { id: pid }, { check: (d) => assert(d.proposal && Array.isArray(d.runs), 'proposal with runs') });
+}
+await call('list_proposals', { group: 'pending', limit: 3 });
 await call('get_madscientist_activity', { limit: 3 });
 await call('list_releases', { limit: 3 }, { check: (d) => assert(d.some((r) => r.tagName === 'v0.1'), 'v0.1 release') });
 await call('list_gym_builds', {}, { check: (d) => assert(d.length > 0, 'builds') });

@@ -1,6 +1,6 @@
-# RL Roboracer
+# RL Robot Lab
 
-[![CI](https://github.com/frenb/rl-roboracer/actions/workflows/ci.yml/badge.svg)](https://github.com/frenb/rl-roboracer/actions/workflows/ci.yml)
+[![CI](https://github.com/frenb/rl-robotlab/actions/workflows/ci.yml/badge.svg)](https://github.com/frenb/rl-robotlab/actions/workflows/ci.yml)
 
 **A reinforcement learning platform for autonomous driving: from a Unity gym to a real 1/10-scale robot car.**
 
@@ -36,7 +36,7 @@ Average evaluation return of different drivers on the `donut_no_hint` course ([f
 
 The dashboard's weakness map shows where a policy struggles. Each cell blends crash rate, slowness and pre-crash risk from the logged trajectories, and crash sites are marked with ×. Per-gate crash statistics from the same logs back the `get_difficult_sections` and `suggest_start_gates` MCP tools.
 
-![Weakness map of a training run: the donut track colored by weakness, with crash hotspots in red](docs/images/weakness-map.png)
+![Insights page for a training run: the track coloured by crashes per visit, with crash hotspots numbered in red and goal gates ringed](docs/images/insights-crash-map.png)
 
 ## How it fits together
 
@@ -48,27 +48,26 @@ Unity simulators run on the Windows host, one to four in parallel. Each talks RO
 
 **Requirements:** Windows 10 or 11, an NVIDIA GPU with a current driver, about 60 GB free disk, and 30-60 minutes for the first build. Linux and macOS are not supported yet.
 
-The installer is [InstallZero](https://github.com/InstallZero/installzero), an agentic installer that diagnoses its own failures. Download [installzero.exe](https://github.com/frenb/rl-roboracer/releases/latest/download/installzero.exe) from the latest release and open it (until InstallZero is code-signed, Windows asks you to confirm: *More info*, then *Run anyway*).
+The installer is [InstallZero](https://github.com/InstallZero/installzero), an agentic installer that diagnoses its own failures. Download [installzero.exe](https://github.com/frenb/rl-robotlab/releases/latest/download/installzero.exe) from the latest release and open it (until InstallZero is code-signed, Windows asks you to confirm: *More info*, then *Run anyway*).
 
 Or, in PowerShell (not as administrator):
 
 ```powershell
-irm https://raw.githubusercontent.com/frenb/rl-roboracer/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/frenb/rl-robotlab/main/install.ps1 | iex
 ```
 
-Either way, InstallZero asks before it starts, keeps itself in `%LOCALAPPDATA%\installzero\bin`, gets the repo into `%USERPROFILE%\rl-roboracer\rl-roboracer`, and follows [install.md](install.md): WSL 2, Git and Docker Desktop if missing, the Docker images, the Unity gyms and expert demonstrations, the stack, one Unity client and a short first training job. Installing WSL needs a restart of Windows; after restarting, InstallZero resumes where it left off.
+Either way, InstallZero asks before it starts, keeps itself in `%LOCALAPPDATA%\installzero\bin`, gets the repo into `%USERPROFILE%\rl-robotlab\rl-robotlab`, and follows [install.md](install.md): WSL 2, Git and Docker Desktop if missing, the Docker images, the Unity gyms and expert demonstrations, the stack, one Unity client and a short first training job. Installing WSL needs a restart of Windows; after restarting, InstallZero resumes where it left off.
 
 If a step fails and the failure catalog has no fix, it asks which model (local, or hosted with your API key kept in Windows Credential Manager via `installzero key status` / `installzero key remove <provider>`) should diagnose it.
 
 When it finishes:
 
-- Dashboard: http://localhost
-- TensorBoard: http://localhost:6006
+- Dashboard: http://localhost (runs and their curves at http://localhost/app/runs, side-by-side comparisons at http://localhost/app/compare)
 
 More:
 
-- Options: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/frenb/rl-roboracer/main/install.ps1))) --model google --skip firstjob`. `--plan` previews steps without changing anything, `--agent <model>` lets a model run [install.md](install.md), and `--report <file>` writes timings (`installzero compare`). Re-run `%LOCALAPPDATA%\installzero\bin\installzero.exe install` from the repo folder to resume or repair, or use `scripts/install/Install.ps1` (`-Clients N`, `-DryRun`).
-- Uninstall: `installzero uninstall rl-roboracer` (`--keep-packages`, `--data`), or `irm https://raw.githubusercontent.com/frenb/rl-roboracer/main/uninstall.ps1 | iex`.
+- Options: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/frenb/rl-robotlab/main/install.ps1))) --model google --skip firstjob`. `--plan` previews steps without changing anything, `--agent <model>` lets a model run [install.md](install.md), and `--report <file>` writes timings (`installzero compare`). Re-run `%LOCALAPPDATA%\installzero\bin\installzero.exe install` from the repo folder to resume or repair, or use `scripts/install/Install.ps1` (`-Clients N`, `-DryRun`).
+- Uninstall: `installzero uninstall rl-robotlab` (`--keep-packages`, `--data`), or `irm https://raw.githubusercontent.com/frenb/rl-robotlab/main/uninstall.ps1 | iex`.
 - Manual developer setup: [docs/setup.md](docs/setup.md). With the InstallZero CLI, `installzero install` at the repo root follows [install.md](install.md).
 - Day-to-day start, stop and multi-actor runs: [docs/operations.md](docs/operations.md).
 
@@ -77,7 +76,7 @@ More:
 ## Repository layout
 
 ```
-rl-roboracer/
+rl-robotlab/
 ├── rl_agent/          trainer: tf-agents SAC/AWAC, courses, curriculum, Mad Scientist, fly-brain client
 ├── dashboard/         Node/Express web console (jobs, models, designs, analysis, weakness map)
 ├── unity/             Unity 2020.3 simulator project (original)

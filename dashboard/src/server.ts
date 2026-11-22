@@ -9,8 +9,15 @@ const { spawn } = require('child_process');
 const crypto = require('crypto');
 import { log, LogLevel } from './log';
 import * as morgan from 'morgan';
+import { createApiV1 } from './api/v1';
+import { applyRunAction, RUN_ACTIONS } from './api/curricula';
+import { HttpError } from './api/http';
+import { gateGroups, weaknessGrid } from './api/weakness';
+import { decide as labDecide, edit as labEdit, proposalId as labProposalId } from './api/lab';
+import { setQueuePaused } from './api/queue';
+import { deleteModel } from './api/models';
+import { Context as ApiContext } from './api/runs';
 
-const WebSocket = require('ws');
 
 // ----------------------------------------------------------------
 // Process-level crash guards.
@@ -42,52 +49,14 @@ process.on('unhandledRejection', (reason: any) => {
 });
 
 // ----------------------------------------------------------------
-// WebSocket server for real-time data updates (MongoDB change streams)
-// Clients connect to port 8081, subscribe to collections, and receive
-// incremental updates instead of polling.
-// ----------------------------------------------------------------
-const dataWss = new WebSocket.Server({ port: 8082 });
-
-// Track connected clients and their subscriptions
-// Map<WebSocket, Set<collectionName>>
-const dataClients: Map<any, Set<string>> = new Map();
-
-// Broadcast a change event to all clients subscribed to a collection.
-// `version` is the collection's post-change version cursor so a client
-// applying this event in-place can advance its ?since cursor and avoid a
-// redundant full refetch on its next poll.
-function broadcastChange(collection: string, change: any, version?: number) {
-  const message = JSON.stringify({
-    type: 'change',
-    collection,
-    version,
-    operationType: change.operationType,
-    documentKey: change.documentKey,
-    // For updates, include the changed fields
-    updateDescription: change.updateDescription,
-    // For inserts/replaces, include the full document
-    fullDocument: change.fullDocument,
-  });
-
-  dataClients.forEach((subscriptions, client) => {
-    if (subscriptions.has(collection) && client.readyState === WebSocket.OPEN) {
-      client.send(message);
-    }
-  });
-}
-
-// ----------------------------------------------------------------
 // Resilient change-stream supervisor.
 //
 // A MongoDB change stream is a long-lived tailable cursor. When its
 // underlying pooled connection is reset (idle-connection reaping, a
 // single-node-RS blip, the mongo container bouncing) the stream goes
-// inert. The original code attached only a `change` listener, so a
-// dead stream was never noticed or recreated - and because the same
-// handler both pushes over WebSocket AND flips the `*Changed` flag the
-// REST poll path is gated on, a single dead stream froze the entire
-// dashboard until the container was restarted (the classic "freeze
-// after hours of inactivity").
+// inert. A dead stream was once never noticed or recreated, and because
+// its handler flips the `*Changed` flag the REST poll path is gated on,
+// it froze the change-gated routes until the container was restarted.
 //
 // This supervisor (re)creates a stream and, on ANY error/close,
 // schedules a recreate with capped exponential backoff. On every
@@ -132,14 +101,7 @@ function superviseChangeStream(
     stream.on('change', (change: any) => {
       backoff = 1000;                // healthy traffic resets the backoff
       console.log(`Change detected (${collName}):`, change.operationType, change.documentKey?._id);
-      const version = markChanged();
-      try {
-        broadcastChange(collName, change, typeof version === 'number' ? version : undefined);
-      } catch (e: any) {
-        // A stringify/send throw must not kill the tailable cursor —
-        // the REST poll still has a bumped version to catch up.
-        console.error(`[stream:${collName}] broadcast failed:`, e && (e.message || e));
-      }
+      markChanged();
     });
     stream.on('error', (err: any) => scheduleReopen('stream error', err && (err.message || err)));
     stream.on('close', () => scheduleReopen('stream closed'));
@@ -147,67 +109,6 @@ function superviseChangeStream(
 
   open();
 }
-
-function heartbeat(this: any) { this.isAlive = true; }
-
-dataWss.on('connection', (ws) => {
-  console.log('[DataWS] Client connected');
-  dataClients.set(ws, new Set());
-  // Liveness flag, flipped back true whenever the client answers a
-  // protocol-level ping (browsers auto-reply to ping frames).
-  (ws as any).isAlive = true;
-  ws.on('pong', heartbeat);
-
-  ws.on('message', (data: string) => {
-    try {
-      const msg = JSON.parse(data);
-      if (msg.type === 'subscribe' && Array.isArray(msg.collections)) {
-        const subs = dataClients.get(ws);
-        msg.collections.forEach((c: string) => subs?.add(c));
-        console.log('[DataWS] Client subscribed to:', msg.collections);
-        ws.send(JSON.stringify({ type: 'subscribed', collections: msg.collections }));
-      }
-    } catch (e) {
-      console.error('[DataWS] Invalid message:', e);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log('[DataWS] Client disconnected');
-    dataClients.delete(ws);
-  });
-
-  ws.on('error', (err) => {
-    console.error('[DataWS] Error:', err);
-    dataClients.delete(ws);
-  });
-});
-
-// Heartbeat: every 30s ping each client and reap any that didn't pong
-// since the last tick (a half-open socket from a slept laptop / dropped
-// network never fires 'close', so without this it lingers in
-// dataClients forever and the client UI silently goes stale). We also
-// push an application-level {type:'heartbeat'} so the browser side can
-// run its own staleness watchdog even when the subscribed collections
-// are quiet (no 'change' traffic to prove the link is alive).
-const WS_HEARTBEAT_MS = 30000;
-const wsHeartbeat = setInterval(() => {
-  dataWss.clients.forEach((ws: any) => {
-    if (ws.isAlive === false) {
-      dataClients.delete(ws);
-      try { ws.terminate(); } catch (e) { /* noop */ }
-      return;
-    }
-    ws.isAlive = false;
-    try { ws.ping(); } catch (e) { /* noop */ }
-    if (ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ type: 'heartbeat', t: Date.now() })); } catch (e) { /* noop */ }
-    }
-  });
-}, WS_HEARTBEAT_MS);
-dataWss.on('close', () => clearInterval(wsHeartbeat));
-
-console.log('[DataWS] WebSocket server for data updates listening on port 8082');
 
 export const createServer = (config): express.Application => {
   const app: express.Application = express();
@@ -310,9 +211,8 @@ export const createServer = (config): express.Application => {
     // });
     // Each collection gets a self-healing change stream (see
     // superviseChangeStream). The markChanged callback flips the same
-    // `*Changed` flag the matching REST route is gated on, so both the
-    // WebSocket push and the poll fallback recover after a stream
-    // recreate.
+    // `*Changed` flag the matching REST route is gated on, so the poll
+    // path recovers after a stream recreate.
     superviseChangeStream('jobs', dbo.collection("jobs"), () => { jobsChanged = true; return bumpVersion('jobs'); });
     superviseChangeStream('models', dbo.collection("models"), () => { modelsChanged = true; return bumpVersion('models'); });
     superviseChangeStream('leaderboard_scores', dbo.collection("leaderboard_scores"), () => { leaderboardScoresChanged = true; return bumpVersion('leaderboard_scores'); });
@@ -422,11 +322,46 @@ export const createServer = (config): express.Application => {
 
   app.use(bodyParser.urlencoded({ extended: true }));
   app.use(bodyParser.json());
-  app.use(express.static(path.join(__dirname, '/..')));
-  app.get('/leaderboard', (req, res) => {
-    const lb: string = path.join(__dirname, '/../leaderboard.html');
-    res.sendFile(lb);
+
+  // The new app (dashboard/app, built to app/dist) and its API. Mounted ahead of
+  // the static handler below, which would otherwise serve app/ as source files.
+  const desiredGymState: Map<string, any> = new Map();
+  const apiContext: ApiContext = {
+    db: () => dbo,
+    desiredGyms: () => {
+      const out: { [index: string]: any } = {};
+      desiredGymState.forEach((v, k) => { out[k] = v; });
+      return out;
+    },
+    robots: () => robotCache,
+    mediaRoots: () => mediaRoots,
+  };
+  app.locals.apiContext = apiContext;
+  app.use('/api/v1', createApiV1(apiContext));
+  const appDist = path.join(__dirname, '/../app/dist');
+  app.use('/app', express.static(appDist, { index: false }));
+  app.get(['/app', '/app/*'], (req, res) => {
+    const index = path.join(appDist, 'index.html');
+    if (fs.existsSync(index)) {
+      res.sendFile(index);
+    } else {
+      res.status(503).type('text/plain').send(
+        'The new app is not built yet. On the host: cd dashboard/app; npm install; npm run build');
+    }
   });
+
+  // The classic Golden Layout pages became the app; old links still land.
+  app.get(['/', '/index.html'], (req, res) => res.redirect('/app'));
+  app.get(['/jobs', '/jobs.html'], (req, res) => res.redirect('/app/runs'));
+  app.get(['/logs', '/logs.html'], (req, res) => res.redirect('/app/system'));
+  app.get(['/weakness', '/weakness.html'], (req, res) => {
+    const run = typeof req.query.job_id === 'string' ? req.query.job_id : '';
+    res.redirect(run ? `/app/insights?run=${encodeURIComponent(run)}` : '/app/insights');
+  });
+  app.get(['/madscientist', '/madscientist.html'], (req, res) => res.redirect('/app/lab'));
+  // The Models and Leaderboard tabs became /app/models.
+  app.get(['/models', '/models.html'], (req, res) => res.redirect('/app/models'));
+  app.get(['/leaderboard', '/leaderboard.html'], (req, res) => res.redirect('/app/models?view=leaderboard'));
   // Decide whether a change-gated GET should return fresh data. Always
   // stamps the current per-collection version on the response so the
   // client can advance its cursor (even on a NO_CHANGES reply).
@@ -464,22 +399,6 @@ export const createServer = (config): express.Application => {
     res.status(200).send('NO_CHANGES');
   
   });
-  app.get('/logs', (req, res) => {
-    const lb: string = path.join(__dirname, '/../logs.html');
-    res.sendFile(lb);
-    // const dockerLogs = spawn('tail', ['-f', '-n', '100', '/python_ws/src/robotaxi.out']);
-    // dockerLogs.stdout.on('data', (data) => {
-    //   res.write(`${data}\n`);
-    // });
-    // dockerLogs.stderr.on('data', (data) => {
-    //   console.error(`stderr: ${data}`);
-    // });
-    // dockerLogs.on('close', (code) => {
-    //   console.log(`child process exited with code ${code}`);
-    //   res.end();
-    // });
-
-  })
   // A job's gym decides which worker claims it: duck gyms
   // (robot: "microduck", from rl_agent/duck/gyms.py) stamp robot and
   // task_id so the car trainer, which takes every job without a robot,
@@ -527,220 +446,23 @@ export const createServer = (config): express.Application => {
     res.status(200).send('NO_CHANGES');
   });
 
-  // ----------------------------------------------------------------
-  // Weakness heatmap (Phase 1 diagnostic)
-  //
-  // Aggregates per-step car world positions (logs.position_history)
-  // for a single job into a 2D spatial grid and returns the per-cell
-  // counters the client blends into a "weakness" score:
-  //   * crash rate   = terminal cells of "has failed" episodes / visits
-  //   * slowness      = inverse mean per-step travel distance (speed)
-  //   * low return    = inverse mean terminal episode score
-  //
-  // Read-only: consumes data already written by log_reward() in
-  // rl_agent/environments/courses/utils/logging.py. position_history
-  // is stored as a Python list-repr joined by commas, e.g.
-  //   "[1.2, 3.4, 5.6],[1.3, 3.5, 5.7],..."
-  // Only "has succeeded" / "has failed - reward" docs carry a
-  // position_history (the per-step "did not fail" rows do not), so we
-  // filter on its presence to skip the high-volume per-step rows.
-  //
-  // The ground plane is auto-detected as the two of (x,y,z) with the
-  // largest spatial spread (Unity's up-axis is ~constant, so it falls
-  // out as the discarded third axis). Sorted newest-first + capped by
-  // `limit` so the map reflects RECENT policy behaviour, which matters
-  // because the policy drifts over a training run.
-  // ----------------------------------------------------------------
+  // Classic weakness routes for the MCP console; the app uses /api/v1/insights (api/weakness.ts).
   app.get('/weakness_map', (req, res) => {
     const jobId = String(req.query.job_id || '');
+    if (!jobId) { res.status(400).json({ ok: false, error: 'job_id required' }); return; }
     const bins = Math.max(8, Math.min(200, parseInt(String(req.query.bins || '48'), 10) || 48));
     const limit = Math.max(1, Math.min(5000, parseInt(String(req.query.limit || '500'), 10) || 500));
-    if (!jobId) { res.status(400).json({ ok: false, error: 'job_id required' }); return; }
-
-    // logs.job_id is written by the trainer as an ObjectId (not the hex
-    // string the dashboard passes around), so match on the ObjectId form
-    // and keep a string branch for any legacy/string-typed rows. The
-    // equality on job_id lets the {job_id:1,_id:-1} index seek directly
-    // instead of falling back to a full-collection _id scan.
-    const jobOr: any[] = [{ job_id: jobId }];
-    try { jobOr.push({ job_id: new ObjectID(jobId) }); } catch (e) { /* not a valid ObjectId */ }
-    const jobFilter = { $and: [{ $or: jobOr }, { position_history: { $ne: null } }] };
-
-    dbo.collection('logs')
-      .find(jobFilter)
-      .project({ type: 1, score: 1, position_history: 1 })
-      .sort({ _id: -1 })
-      .limit(limit)
-      .maxTimeMS(20000)
-      .toArray(function (err, docs) {
-        if (err) { res.status(500).json({ ok: false, error: String(err) }); return; }
-        docs = docs || [];
-
-        // Parse each doc's position_history string into [x,y,z] points.
-        const trajs: Array<{ pts: number[][], type: string, score: number }> = [];
-        for (const d of docs) {
-          const s: string = d.position_history;
-          if (!s) continue;
-          const toks = s.match(/\[[^\]]*\]/g) || [];
-          const pts: number[][] = [];
-          for (const tok of toks) {
-            const parts = tok.slice(1, -1).split(',');
-            if (parts.length < 3) continue;
-            const x = parseFloat(parts[0]), y = parseFloat(parts[1]), z = parseFloat(parts[2]);
-            if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue;
-            pts.push([x, y, z]);
-          }
-          if (pts.length) trajs.push({ pts, type: String(d.type || ''), score: Number(d.score) });
-        }
-
-        if (!trajs.length) {
-          res.json({ ok: true, job_id: jobId, episodes: 0, cells: [] });
-          return;
-        }
-
-        // Auto-pick the two highest-spread axes as the ground plane.
-        const mins = [Infinity, Infinity, Infinity];
-        const maxs = [-Infinity, -Infinity, -Infinity];
-        for (const t of trajs) for (const p of t.pts) for (let k = 0; k < 3; k++) {
-          if (p[k] < mins[k]) mins[k] = p[k];
-          if (p[k] > maxs[k]) maxs[k] = p[k];
-        }
-        const ranges = [maxs[0] - mins[0], maxs[1] - mins[1], maxs[2] - mins[2]];
-        const order = [0, 1, 2].sort((a, b) => ranges[b] - ranges[a]);
-        const ax = order[0], ay = order[1];
-        let xmin = mins[ax], xmax = maxs[ax], ymin = mins[ay], ymax = maxs[ay];
-        if (!(xmax > xmin)) xmax = xmin + 1;
-        if (!(ymax > ymin)) ymax = ymin + 1;
-
-        const nx = bins, ny = bins;
-        const cw = (xmax - xmin) / nx, ch = (ymax - ymin) / ny;
-        const binOf = (x: number, y: number) => {
-          let ix = Math.floor((x - xmin) / cw); if (ix < 0) ix = 0; if (ix >= nx) ix = nx - 1;
-          let iy = Math.floor((y - ymin) / ch); if (iy < 0) iy = 0; if (iy >= ny) iy = ny - 1;
-          return iy * nx + ix;
-        };
-
-        const N = nx * ny;
-        const visits = new Float64Array(N), speedSum = new Float64Array(N), speedCnt = new Float64Array(N);
-        const crash = new Float64Array(N), goal = new Float64Array(N);
-        const scoreSum = new Float64Array(N), scoreCnt = new Float64Array(N);
-        // Dense "pre-crash risk" field: counts step-visits that fall within
-        // the last HAZARD_WINDOW steps before a crash. Unlike `crash` (which
-        // only marks the exact terminal cell), this lights up the whole
-        // approach a trajectory takes into its demise, so the signal is
-        // dense across visited cells and spatially meaningful ("cars that
-        // pass through here tend to die soon after").
-        const hazard = new Float64Array(N);
-        const HAZARD_WINDOW = 30;
-
-        for (const t of trajs) {
-          const P = t.pts;
-          for (let i = 0; i < P.length; i++) {
-            const b = binOf(P[i][ax], P[i][ay]);
-            visits[b] += 1;
-            if (i > 0) {
-              const dx = P[i][ax] - P[i - 1][ax], dy = P[i][ay] - P[i - 1][ay];
-              speedSum[b] += Math.sqrt(dx * dx + dy * dy);
-              speedCnt[b] += 1;
-            }
-          }
-          const last = P[P.length - 1];
-          const lb = binOf(last[ax], last[ay]);
-          const isFail = t.type.indexOf('fail') >= 0;
-          if (isFail) {
-            crash[lb] += 1;
-            const start = Math.max(0, P.length - HAZARD_WINDOW);
-            for (let i = start; i < P.length; i++) {
-              hazard[binOf(P[i][ax], P[i][ay])] += 1;
-            }
-          } else if (t.type.indexOf('succeed') >= 0) {
-            goal[lb] += 1;
-          }
-          if (isFinite(t.score)) { scoreSum[lb] += t.score; scoreCnt[lb] += 1; }
-        }
-
-        // Sparse emission: only cells that were actually visited.
-        const cells: any[] = [];
-        for (let b = 0; b < N; b++) {
-          if (visits[b] <= 0) continue;
-          cells.push({
-            ix: b % nx, iy: Math.floor(b / nx),
-            v: visits[b], ss: speedSum[b], sc: speedCnt[b],
-            cr: crash[b], gl: goal[b], scs: scoreSum[b], scc: scoreCnt[b],
-            hz: hazard[b],
-          });
-        }
-
-        const axisNames = ['x', 'y', 'z'];
-        res.json({
-          ok: true, job_id: jobId, episodes: trajs.length,
-          axes: [ax, ay], axisNames: [axisNames[ax], axisNames[ay]],
-          extent: { xmin, xmax, ymin, ymax }, nx, ny, cells,
-        });
-      });
+    weaknessGrid(dbo, jobId, bins, limit).then((g) => res.json(g), (err) => res.status(500).json({ ok: false, error: String(err) }));
   });
 
-  // ----------------------------------------------------------------
-  // Difficulty by goal gate. The same segment-end logs as /weakness_map
-  // (one doc per stretch the car drove toward a gate, ending in "has
-  // succeeded" or "has failed - reward"), grouped by the gate it was
-  // heading for (extra_data.car.current_goal, "Goal-N"). Gates are where
-  // SimController spawns the car on reset, so this is the unit a
-  // start-position curriculum would pick from.
-  //
-  // Gate numbering is per track layout: a curriculum stage that rebuilds
-  // the track renumbers the gates, so a job spanning stages mixes layouts.
-  // ----------------------------------------------------------------
+  // Difficulty by goal gate (api/weakness.ts gateGroups); the MCP console's gate tools read it.
   app.get('/weakness_by_gate', (req, res) => {
     const jobId = String(req.query.job_id || '');
-    const limit = Math.max(1, Math.min(20000, parseInt(String(req.query.limit || '2000'), 10) || 2000));
     if (!jobId) { res.status(400).json({ ok: false, error: 'job_id required' }); return; }
-    const jobOr: any[] = [{ job_id: jobId }];
-    try { jobOr.push({ job_id: new ObjectID(jobId) }); } catch (e) { /* not a valid ObjectId */ }
-
-    dbo.collection('logs').aggregate([
-      { $match: { $and: [{ $or: jobOr }, { position_history: { $ne: null } }] } },
-      { $sort: { _id: -1 } },
-      { $limit: limit },
-      { $project: {
-          gate: '$extra_data.car.current_goal',
-          failed: { $regexMatch: { input: { $ifNull: ['$type', ''] }, regex: 'fail' } },
-          steps: { $size: { $regexFindAll: { input: '$position_history', regex: '\\[' } } },
-          x: '$extra_data.car.location_x',
-          z: '$extra_data.car.location_z',
-          at: { $toDate: '$_id' },
-      } },
-      { $group: {
-          _id: '$gate',
-          attempts: { $sum: 1 },
-          crashes: { $sum: { $cond: ['$failed', 1, 0] } },
-          mean_steps: { $avg: '$steps' },
-          mean_steps_success: { $avg: { $cond: ['$failed', null, '$steps'] } },
-          reach_x: { $avg: { $cond: ['$failed', null, '$x'] } },
-          reach_z: { $avg: { $cond: ['$failed', null, '$z'] } },
-          crash_x: { $avg: { $cond: ['$failed', '$x', null] } },
-          crash_z: { $avg: { $cond: ['$failed', '$z', null] } },
-          last_seen: { $max: '$at' },
-      } },
-    ], { maxTimeMS: 20000 }).toArray(function (err, rows) {
-      if (err) { res.status(500).json({ ok: false, error: String(err) }); return; }
-      const gates = (rows || []).map((r: any) => {
-        const m = /(\d+)$/.exec(String(r._id || ''));
-        return { gate: r._id || null, index: m ? parseInt(m[1], 10) : null, ...r, _id: undefined };
-      }).sort((a: any, b: any) => (a.index ?? 1e9) - (b.index ?? 1e9));
-      res.json({
-        ok: true,
-        job_id: jobId,
-        segments: gates.reduce((s: number, g: any) => s + g.attempts, 0),
-        gates,
-      });
-    });
-  });
-
-  app.get('/jobs', (req, res) => {
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-    const lb: string = path.join(__dirname, '/../jobs.html');
-    res.sendFile(lb);
+    const limit = Math.max(1, Math.min(20000, parseInt(String(req.query.limit || '2000'), 10) || 2000));
+    gateGroups(dbo, jobId, limit).then(
+      (gates) => res.json({ ok: true, job_id: jobId, segments: gates.reduce((s, g) => s + g.attempts, 0), gates }),
+      (err) => res.status(500).json({ ok: false, error: String(err) }));
   });
 
   app.post('/update_job_status', (req, res) => {
@@ -767,82 +489,29 @@ export const createServer = (config): express.Application => {
     });
   });
 
-  // Full-cleanup delete of a model. Removes, in order:
-  //   1. the saved-model files on disk at the model's `location`
-  //      (e.g. /saved_models/robotaxi/SacAgent/8) — bounded to the
-  //      /saved_models tree for safety,
-  //   2. the leaderboard_scores rows that reference it (matched by
-  //      `path` == location), and
-  //   3. the model document itself.
-  //
-  // `location` is passed by the client (read off the model row) so we
-  // don't need a pre-read; if absent we still delete the DB doc and skip
-  // the file step. The DB doc delete is last so a file/score failure
-  // doesn't orphan the record without the user knowing.
+  // Full-cleanup delete of a model (files under /saved_models, its
+  // leaderboard_scores, the record); same as DELETE /api/v1/models/:id.
   app.post('/delete_model', (req, res) => {
     const body = req.body || {};
     if (!body._id) {
       res.status(400).json({ error: "_id is required" });
       return;
     }
-
-    let idFilter;
-    try {
-      idFilter = { "_id": ObjectID(body._id) };
-    } catch (e) {
-      idFilter = { "_id": String(body._id) }; // legacy string _id
-    }
-
-    const location = typeof body.location === 'string' ? body.location.trim() : '';
-    const summary: any = { files_deleted: false, scores_deleted: 0 };
-
-    // 1. Delete on-disk files. Safety: only paths strictly under
-    //    /saved_models/ (never the root itself) are eligible, so a
-    //    malformed/empty location can't wipe the whole tree.
-    const SAVED_ROOT = '/saved_models';
-    if (location.startsWith(SAVED_ROOT + '/')) {
-      const resolved = path.resolve(location);
-      if (resolved.startsWith(SAVED_ROOT + path.sep) && resolved !== SAVED_ROOT) {
-        try {
-          if (fs.existsSync(resolved)) {
-            fs.rmSync(resolved, { recursive: true, force: true });
-            summary.files_deleted = true;
-            console.log('delete_model: removed files at', resolved);
-          }
-        } catch (e) {
-          console.error('delete_model: file removal failed for', resolved, e);
-          summary.file_error = String((e as Error).message || e);
-        }
-      }
-    }
-
-    // 2. Delete leaderboard_scores rows referencing this model by path.
-    const removeScores = (cb: () => void) => {
-      if (!location) { cb(); return; }
-      dbo.collection("leaderboard_scores").deleteMany(
-        { path: location },
-        function(err, result) {
-          if (err) {
-            console.error('delete_model: leaderboard_scores cleanup failed:', err);
-          } else if (result) {
-            summary.scores_deleted = result.deletedCount || 0;
-          }
-          cb();
-        });
-    };
-
-    // 3. Delete the model document.
-    removeScores(() => {
-      dbo.collection("models").deleteOne(idFilter, function(err, result) {
-        if (err) {
-          console.error('delete_model failed:', err);
-          res.status(500).json({ error: String(err.message || err), ...summary });
-          return;
-        }
-        console.log('delete_model: removed model', body._id, summary);
-        res.json({ ...result, ...summary });
+    const ids: any[] = [String(body._id)];
+    try { ids.push(ObjectID(body._id)); } catch (e) { /* legacy string _id */ }
+    dbo.collection("models").findOne({ _id: { $in: ids } }, { projection: { location: 1 } })
+      .then((model: any) => {
+        if (!model) return { deletedCount: 0, files_deleted: false, scores_deleted: 0 };
+        return deleteModel(dbo, model).then((summary) => ({ deletedCount: 1, ...summary }));
+      })
+      .then((result: any) => {
+        console.log('delete_model:', body._id, result);
+        res.json(result);
+      })
+      .catch((err: any) => {
+        console.error('delete_model failed:', err);
+        res.status(500).json({ error: String(err && (err.message || err)) });
       });
-    });
   });
 
   // Global job-queue pause switch. A singleton doc in queue_control that
@@ -862,100 +531,41 @@ export const createServer = (config): express.Application => {
     });
   });
 
-  app.post('/set_queue_state', (req, res) => {
+  // Pausing also pauses the running job(s); resuming re-queues only those
+  // (api/queue.ts setQueuePaused, shared with /api/v1/queue).
+  app.post('/set_queue_state', async (req, res) => {
     const paused = !!(req.body && req.body.paused);
-    dbo.collection("queue_control").updateOne(
-      { _id: "singleton" },
-      { "$set": { paused: paused, updated_at: new Date() } },
-      { upsert: true },
-      function(err) {
-        if (err) {
-          console.error('set_queue_state failed:', err);
-          res.status(500).json({ error: String(err) });
-          return;
-        }
-        console.log('queue paused =', paused);
-
-        // Also pause/resume the currently-running job(s), reusing the
-        // per-job lifecycle machinery the trainer already understands:
-        //   * Pausing: flip IN_PROGRESS jobs to PAUSE_REQUESTED. The
-        //     trainer's training loop polls this each iteration, saves a
-        //     Learner checkpoint, and sets PAUSED. We tag them with
-        //     queue_auto_paused so resume knows which jobs WE paused (vs
-        //     jobs the operator paused by hand, which should stay paused).
-        //   * Resuming: flip those tagged jobs back to NOT_STARTED so the
-        //     trainer re-picks them (FIFO) and resumes from the checkpoint
-        //     via its resume-detection path; clear the tag.
-        const jobsCol = dbo.collection("jobs");
-        const after = (e2: any, summary: any) => {
-          if (e2) {
-            console.error('set_queue_state job update failed:', e2);
-            res.status(500).json({ error: String(e2) });
-            return;
-          }
-          res.json({ ok: true, paused, jobs: summary });
-        };
-        if (paused) {
-          jobsCol.updateMany(
-            { status: "IN_PROGRESS" },
-            { "$set": { status: "PAUSE_REQUESTED", queue_auto_paused: true } },
-            (e2, r) => after(e2, { paused: r ? r.modifiedCount : 0 }));
-        } else {
-          jobsCol.updateMany(
-            { queue_auto_paused: true },
-            { "$set": { status: "NOT_STARTED" }, "$unset": { queue_auto_paused: "" } },
-            (e2, r) => after(e2, { resumed: r ? r.modifiedCount : 0 }));
-        }
-      });
+    try {
+      const jobs = await setQueuePaused(dbo, paused);
+      console.log('queue paused =', paused);
+      res.json({ ok: true, paused, jobs });
+    } catch (err) {
+      console.error('set_queue_state failed:', err);
+      res.status(500).json({ error: String(err) });
+    }
   });
 
-  app.get('/models', (req, res) => {
-    const lb: string = path.join(__dirname, '/../models.html');
-    res.sendFile(lb);
+  // The Analysis page became /app/compare; old links carried ?ids=<model ids>.
+  app.get(['/analysis', '/analysis.html'], (req, res) => {
+    const ids = typeof req.query.ids === 'string' ? req.query.ids : '';
+    res.redirect(ids ? `/app/compare?tab=evals&models=${encodeURIComponent(ids)}` : '/app/compare');
   });
 
-  // Side-by-side model comparison view. Reachable both as a standalone
-  // page and as a GoldenLayout tab; the heavy lifting (joining models
-  // with leaderboard_scores, computing stats) is done client-side from
-  // the existing /get_models and /leaderboard_scores endpoints, so no
-  // dedicated data endpoint is needed here.
-  app.get('/analysis', (req, res) => {
-    const lb: string = path.join(__dirname, '/../analysis.html');
-    res.sendFile(lb);
-  });
-
-  // Rewards tab (Markdown specs + raw Python designs). Same pattern
-  // as /jobs / /models / /analysis - the static HTML is also served
-  // by express.static so this clean route is convenience; the iframe
-  // in goldenlayout requests the .html file directly to side-step
-  // any rebuild-lag on this route.
-  app.get('/rewards', (req, res) => {
-    const f: string = path.join(__dirname, '/../rewards.html');
-    res.sendFile(f);
-  });
-
-  app.get('/reward_designs', (req, res) => {
-    const f: string = path.join(__dirname, '/../reward_designs.html');
-    res.sendFile(f);
-  });
-
-  app.get('/reward_specs', (req, res) => {
-    const f: string = path.join(__dirname, '/../reward_specs.html');
-    res.sendFile(f);
-  });
-
-  // Experiment Design tab. Sibling of /rewards above. The iframe in
-  // goldenlayout requests the .html file directly so the tab works
-  // the moment the static file lands on disk, without needing the
-  // dashboard container to be rebuilt to pick up this route.
-  app.get('/experiment_designs', (req, res) => {
-    const f: string = path.join(__dirname, '/../experiment_designs.html');
-    res.sendFile(f);
-  });
-
-  app.get('/gyms', (req, res) => {
-    const f: string = path.join(__dirname, '/../gyms.html');
-    res.sendFile(f);
+  // The design and curricula pages moved into the app; old links (and their ?id=) still land.
+  const MOVED: { [page: string]: string } = {
+    rewards: '/app/design/rewards',
+    reward_designs: '/app/design/rewards',
+    reward_specs: '/app/design/specs',
+    experiment_designs: '/app/design/experiments',
+    gyms: '/app/design/gyms',
+    demos: '/app/design/demos',
+    curricula: '/app/curricula',
+  };
+  Object.keys(MOVED).forEach((page) => {
+    app.get([`/${page}`, `/${page}.html`], (req, res) => {
+      const id = typeof req.query.id === 'string' && req.query.id ? `/${encodeURIComponent(req.query.id)}` : '';
+      res.redirect(MOVED[page] + id);
+    });
   });
 
   // ---------------------------------------------------------------- *
@@ -972,7 +582,6 @@ export const createServer = (config): express.Application => {
   // intentional: after a restart the supervisors poll once more and
   // the running job's do_job will re-signal if it hasn't finished yet.
   // ---------------------------------------------------------------- *
-  const desiredGymState: Map<string, any> = new Map();
 
   app.get('/get_desired_gym', (req, res) => {
     const idx = req.query.index !== undefined ? String(req.query.index) : '*';
@@ -999,24 +608,6 @@ export const createServer = (config): express.Application => {
     desiredGymState.set(idx, state);
     console.log(`[desired-gym] index=${idx} -> ${state.file_path}${state.headless ? ' (headless)' : ''}`);
     res.json({ ok: true, index: idx, state });
-  });
-
-  // MadScientist Lab tab. Phase 0 just serves the static stub so the
-  // GoldenLayout tab in the left column (next to the Tensorboard tabs)
-  // has somewhere to point. Phase 1 will add data endpoints under
-  // /madscientist/activity, /madscientist/proposals, etc. that this
-  // page polls on the standard 5s interval.
-  app.get('/madscientist', (req, res) => {
-    const f: string = path.join(__dirname, '/../madscientist.html');
-    // The HTML embeds an inline <script>, so a stale cached copy of
-    // this file ships stale JS too. Disable the HTTP cache for this
-    // route so iterating on the dashboard during dev doesn't require
-    // a hard reload every time. Hot path is cheap (one file read per
-    // tab open).
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.sendFile(f);
   });
 
   // ---- MadScientist API ----------------------------------------------
@@ -1052,6 +643,15 @@ export const createServer = (config): express.Application => {
     'approve', 'reject', 'defer', 'approve_with_revisions',
   ]);
   const MS_OBJID_RE = /^[a-fA-F0-9]{24}$/;
+
+  function labRoute(res: express.Response, fn: () => Promise<any>) {
+    Promise.resolve().then(fn).then(
+      (body) => res.json(body),
+      (e) => {
+        if (e instanceof HttpError) res.status(e.status).json({ error: e.message });
+        else sendError(res, 'madscientist', e);
+      });
+  }
 
   app.get('/madscientist/proposals', (req, res) => {
     const rawStatus = (req.query.status as string | undefined) || '';
@@ -1193,224 +793,10 @@ export const createServer = (config): express.Application => {
     });
   });
 
-  // POST /madscientist/proposals/:id/edit
-  //   Body: { patch: { <field>: <value>, ... } }
-  //   Mutates whitelisted fields on a proposal that's still in
-  //   `pending_user` or `deferred` state. Once the operator approves /
-  //   rejects / defers (or the orchestrator picks it up), the proposal
-  //   is locked - mutating it after the orchestrator has queued TRAIN
-  //   jobs would silently break the experiment design.
-  //
-  //   The whitelist below is intentionally minimal - everything an
-  //   operator would realistically want to nudge before approving (the
-  //   hypothesis text, the success threshold, seeds/iters/wall-time).
-  //   Editing experiment_arms is NOT supported here; reject and let
-  //   the researcher regenerate is the right flow for that.
-  //
-  //   Every edit appends an audit_events entry with a field-level diff
-  //   so the operator's nudges are reconstructible later.
-  const MS_EDITABLE_TOP_LEVEL = new Set([
-    'title', 'hypothesis', 'motivation', 'code_changes_summary',
-    'n_seeds_per_arm', 'num_iterations_per_seed',
-    'expected_wall_time_hours',
-  ]);
-  const MS_EDITABLE_PRIMARY = new Set([
-    'metric', 'arm_a', 'arm_b', 'comparator',
-    'threshold', 'threshold_kind',
-  ]);
-  const MS_VALID_COMPARATORS = new Set(['>=', '<=', '>', '<']);
-  const MS_VALID_THRESHOLD_KINDS = new Set(['relative', 'absolute']);
-  const MS_EDITABLE_STATUSES = new Set(['pending_user', 'deferred']);
-
+  // POST /madscientist/proposals/:id/edit  Body: { patch: { <field>: <value>, ... } }
+  // Whitelisted edits to a pending_user / deferred proposal (api/lab.ts editPatch).
   app.post('/madscientist/proposals/:id/edit', (req, res) => {
-    const proposalId = String(req.params.id || '').trim();
-    if (!MS_OBJID_RE.test(proposalId)) {
-      res.status(400).json({ error: 'proposal id must be a 24-char hex ObjectId' });
-      return;
-    }
-    const body = req.body || {};
-    const rawPatch = (body.patch && typeof body.patch === 'object') ? body.patch : null;
-    if (!rawPatch) {
-      res.status(400).json({ error: 'body.patch object required' });
-      return;
-    }
-
-    // Validate + assemble the $set + diff trail. We fetch the
-    // existing doc first so the diff can record before-values; that
-    // makes the audit log readable ("hypothesis: 'A' -> 'B'") rather
-    // than just "field X was edited".
-    dbo.collection(MS_PROPOSALS_COLL).findOne(
-      { _id: ObjectID(proposalId) },
-      {},
-      (findErr, existing) => {
-        if (findErr) {
-          console.error('POST /madscientist/proposals/:id/edit findOne:', findErr);
-          res.status(500).json({ error: String(findErr) });
-          return;
-        }
-        if (!existing) {
-          res.status(404).json({ error: 'proposal not found' });
-          return;
-        }
-        if (!MS_EDITABLE_STATUSES.has(existing.status)) {
-          res.status(409).json({
-            error: `proposal status=${existing.status} is no longer editable. ` +
-              `Only pending_user / deferred proposals can be edited.`,
-          });
-          return;
-        }
-
-        const set: Record<string, any> = {};
-        const diff: Record<string, { from: any; to: any }> = {};
-
-        // Top-level fields
-        for (const k of Object.keys(rawPatch)) {
-          if (!MS_EDITABLE_TOP_LEVEL.has(k)) continue;
-          const v = rawPatch[k];
-          let normalized: any = v;
-          if (k === 'n_seeds_per_arm' || k === 'num_iterations_per_seed') {
-            const n = Number.parseInt(String(v), 10);
-            if (!Number.isFinite(n) || n < 1 || n > 100000) {
-              res.status(400).json({
-                error: `${k} must be an integer in [1, 100000]; got ${JSON.stringify(v)}`,
-              });
-              return;
-            }
-            normalized = n;
-          } else if (k === 'expected_wall_time_hours') {
-            // null allowed (means "unknown"); otherwise positive float
-            if (v === null || v === undefined || v === '') {
-              normalized = null;
-            } else {
-              const f = Number.parseFloat(String(v));
-              if (!Number.isFinite(f) || f < 0 || f > 10000) {
-                res.status(400).json({
-                  error: `expected_wall_time_hours must be a non-negative float < 10000; ` +
-                    `got ${JSON.stringify(v)}`,
-                });
-                return;
-              }
-              normalized = f;
-            }
-          } else {
-            if (typeof v !== 'string') {
-              res.status(400).json({
-                error: `${k} must be a string; got ${typeof v}`,
-              });
-              return;
-            }
-            normalized = v.slice(0, 16000);
-          }
-          if (existing[k] !== normalized) {
-            set[k] = normalized;
-            diff[k] = { from: existing[k] ?? null, to: normalized };
-          }
-        }
-
-        // success_criteria.primary (string)
-        if (typeof rawPatch['success_criteria.primary'] === 'string') {
-          const v = rawPatch['success_criteria.primary'].slice(0, 8000);
-          const existingPrimary = (existing.success_criteria && existing.success_criteria.primary) || '';
-          if (existingPrimary !== v) {
-            set['success_criteria.primary'] = v;
-            diff['success_criteria.primary'] = { from: existingPrimary, to: v };
-          }
-        }
-
-        // success_criteria.primary_parsed.{metric,arm_a,arm_b,comparator,threshold,threshold_kind}
-        for (const k of Array.from(MS_EDITABLE_PRIMARY)) {
-          const dottedKey = `success_criteria.primary_parsed.${k}`;
-          if (!(dottedKey in rawPatch)) continue;
-          let v = rawPatch[dottedKey];
-          if (k === 'comparator') {
-            if (!MS_VALID_COMPARATORS.has(String(v))) {
-              res.status(400).json({
-                error: `comparator must be one of ${Array.from(MS_VALID_COMPARATORS).join(', ')}; ` +
-                  `got ${JSON.stringify(v)}`,
-              });
-              return;
-            }
-          } else if (k === 'threshold_kind') {
-            if (!MS_VALID_THRESHOLD_KINDS.has(String(v))) {
-              res.status(400).json({
-                error: `threshold_kind must be one of ${Array.from(MS_VALID_THRESHOLD_KINDS).join(', ')}; ` +
-                  `got ${JSON.stringify(v)}`,
-              });
-              return;
-            }
-          } else if (k === 'threshold') {
-            const f = Number.parseFloat(String(v));
-            if (!Number.isFinite(f)) {
-              res.status(400).json({
-                error: `threshold must be a finite number; got ${JSON.stringify(v)}`,
-              });
-              return;
-            }
-            v = f;
-          } else {
-            // metric / arm_a / arm_b: strings, length-capped
-            if (typeof v !== 'string' || !v.trim()) {
-              res.status(400).json({
-                error: `${k} must be a non-empty string; got ${JSON.stringify(v)}`,
-              });
-              return;
-            }
-            v = v.trim().slice(0, 200);
-          }
-          const existingParsed = (existing.success_criteria
-            && existing.success_criteria.primary_parsed) || {};
-          if (existingParsed[k] !== v) {
-            set[dottedKey] = v;
-            diff[dottedKey] = { from: existingParsed[k] ?? null, to: v };
-          }
-        }
-
-        if (Object.keys(set).length === 0) {
-          res.json({
-            ok: true,
-            proposal_id: proposalId,
-            updated_fields: [],
-            note: 'patch contained no changes',
-          });
-          return;
-        }
-
-        const now = new Date();
-        set.updated_at = now;
-        const auditEvent = {
-          at: now,
-          by_agent: 'user',
-          event: 'edited',
-          detail: {
-            source: 'dashboard',
-            field_diff: diff,
-          },
-        };
-
-        dbo.collection(MS_PROPOSALS_COLL).updateOne(
-          { _id: ObjectID(proposalId), status: { $in: Array.from(MS_EDITABLE_STATUSES) } },
-          { $set: set, $push: { audit_events: auditEvent } },
-          {},
-          (updErr, result) => {
-            if (updErr) {
-              console.error('POST /madscientist/proposals/:id/edit updateOne:', updErr);
-              res.status(500).json({ error: String(updErr) });
-              return;
-            }
-            if (result.matchedCount === 0) {
-              // Lost the race: status changed between findOne and updateOne.
-              res.status(409).json({
-                error: 'proposal status changed concurrently; refresh and retry',
-              });
-              return;
-            }
-            res.json({
-              ok: true,
-              proposal_id: proposalId,
-              updated_fields: Object.keys(set).filter((k) => k !== 'updated_at'),
-            });
-          });
-      });
+    labRoute(res, () => labEdit(dbo, labProposalId(req.params.id), (req.body || {}).patch, 'dashboard'));
   });
 
   // GET /madscientist/act?token=<pid.action.exp.hmac>
@@ -1443,7 +829,7 @@ export const createServer = (config): express.Application => {
       `<div style="padding:24px">` +
       `<h2 style="margin:0 0 10px 0;color:${accent};font-size:20px">${opts.heading}</h2>` +
       `<div style="color:#334155;font-size:14px;line-height:1.6">${opts.body}</div>` +
-      `<div style="margin-top:22px"><a href="/madscientist" ` +
+      `<div style="margin-top:22px"><a href="/app/lab" ` +
       `style="display:inline-block;padding:10px 18px;background:#4f46e5;` +
       `color:#fff;text-decoration:none;border-radius:8px;font-weight:600;` +
       `font-size:14px">Open the dashboard</a></div>` +
@@ -1583,80 +969,7 @@ export const createServer = (config): express.Application => {
 
   app.post('/madscientist/decide', (req, res) => {
     const body = req.body || {};
-    const proposalId = String(body.proposal_id || '').trim();
-    const action = String(body.action || '').trim();
-    const note = String(body.note || '').slice(0, 4000);
-
-    if (!MS_OBJID_RE.test(proposalId)) {
-      res.status(400).json({ error: 'proposal_id must be a 24-char hex ObjectId' });
-      return;
-    }
-    if (!MS_VALID_DECISIONS.has(action)) {
-      res.status(400).json({
-        error: `action must be one of ${Array.from(MS_VALID_DECISIONS).join(', ')}`,
-      });
-      return;
-    }
-
-    const now = new Date();
-    // Map the action to the next status:
-    //   approve / approve_with_revisions -> "approved" (Phase 1C
-    //     orchestrator will pick this up). For now it just sits.
-    //   reject -> "rejected" (terminal, no further worker action).
-    //   defer -> "deferred" (soft state; user can revisit later).
-    let nextStatus: string;
-    if (action === 'reject') {
-      nextStatus = 'rejected';
-    } else if (action === 'defer') {
-      nextStatus = 'deferred';
-    } else {
-      nextStatus = 'approved';
-    }
-
-    const decision = {
-      at: now,
-      by: 'user',
-      action,
-      note,
-      revision_applied: action === 'approve_with_revisions',
-      source: 'dashboard',
-    };
-    const auditEvent = {
-      at: now,
-      by_agent: 'user',
-      event: 'decided',
-      detail: {
-        action,
-        next_status: nextStatus,
-        note_chars: note.length,
-        source: 'dashboard',
-      },
-    };
-
-    dbo.collection(MS_PROPOSALS_COLL).updateOne(
-      { _id: ObjectID(proposalId) },
-      {
-        $set: { status: nextStatus, decision, updated_at: now },
-        $push: { audit_events: auditEvent },
-      },
-      {},
-      (err, result) => {
-        if (err) {
-          console.error('POST /madscientist/decide:', err);
-          res.status(500).json({ error: String(err) });
-          return;
-        }
-        if (result.matchedCount === 0) {
-          res.status(404).json({ error: 'proposal not found' });
-          return;
-        }
-        res.json({
-          ok: true,
-          proposal_id: proposalId,
-          new_status: nextStatus,
-          action,
-        });
-      });
+    labRoute(res, () => labDecide(dbo, labProposalId(body.proposal_id), String(body.action || '').trim(), String(body.note || ''), 'dashboard', false));
   });
   // One robot's models for pickers (the microduck job form), newest first;
   // /get_models carries every car model and is too heavy for that.
@@ -1974,10 +1287,9 @@ export const createServer = (config): express.Application => {
       // shape so the dashboard can edit a seeded design too.
       idFilter = { "_id": String(body._id) };
     }
-    const update: any = {
-      "$set": { updated_at: new Date() },
-      "$inc": { version: 1 },
-    };
+    const update: any = { "$set": { updated_at: new Date() } };
+    // Archiving or restoring isn't a new version of the reward.
+    if (Object.keys(body).some((k) => k !== '_id' && k !== 'archived')) update["$inc"] = { version: 1 };
     if (body.name        !== undefined) update["$set"].name        = String(body.name);
     if (body.description !== undefined) update["$set"].description = String(body.description);
     if (body.code        !== undefined) update["$set"].code        = String(body.code);
@@ -2046,11 +1358,8 @@ export const createServer = (config): express.Application => {
   // /validate_curriculum                  dry run: resolved stages or problems
   // /create_curriculum, /update_curriculum, /set_curriculum_archived
   // /start_curriculum_run, /cancel_curriculum_run, /retry_curriculum_run,
-  // /delete_curriculum_run
+  // /skip_curriculum_run, /delete_curriculum_run
   const CURRICULUM_CLI = '/python_ws/src/curriculum/cli.py';
-  const ACTIVE_RUN_STATUSES = ['RUNNING', 'CANCEL_REQUESTED'];
-  const ACTIVE_JOB_STATUSES = ['NOT_STARTED', 'IN_PROGRESS', 'PAUSE_REQUESTED', 'PAUSED'];
-
   function anyIdFilter(id: any): any {
     const s = String(id);
     return /^[0-9a-f]{24}$/i.test(s) ? { _id: { $in: [ObjectID(s), s] } } : { _id: s };
@@ -2070,7 +1379,7 @@ export const createServer = (config): express.Application => {
     };
     const mine = robot === 'roboracer' ? { robot: { $in: [null, 'roboracer'] } } : { robot };
     return {
-      gyms: await rows('gyms', {}, { robot: 1, archived: 1 }),
+      gyms: await rows('gyms', {}, { robot: 1, archived: 1, task_id: 1 }),
       reward_designs: await rows('reward_designs', {}, { robot: 1, archived: 1 }),
       experiment_designs: await rows('experiment_designs', {}, { robot: 1, archived: 1 }),
       models: await rows('models', mine, { robot: 1, location: 1 }),
@@ -2206,76 +1515,23 @@ export const createServer = (config): express.Application => {
     } catch (e) { sendError(res, 'start_curriculum_run', e); }
   });
 
-  app.post('/cancel_curriculum_run', async (req, res) => {
-    // The runner finishes the cancel; the pending job is cancelled here too
-    // so the GPU frees up without waiting for the runner's next tick.
-    const body = req.body || {};
-    if (!body._id) { res.status(400).json({ error: '_id is required' }); return; }
-    try {
-      const filter = anyIdFilter(body._id);
-      const run = await dbo.collection('curriculum_runs').findOne(filter);
-      if (!run) { res.status(404).json({ error: `curriculum run ${body._id} not found` }); return; }
-      if (!ACTIVE_RUN_STATUSES.includes(run.status)) {
-        res.status(409).json({ error: `run is ${run.status}; only a running run can be cancelled` });
-        return;
+  // Run transitions are shared with /api/v1/curriculum-runs/:id/actions (api/curricula.ts).
+  // cancel: the runner finishes it; the pending job is cancelled at once.
+  // retry: FAILED_GATE gets one more attempt from the last checkpoint; FAILED / CANCELLED rerun the attempt.
+  // skip: a FAILED_GATE stage is waved through and the next stage starts from its checkpoint.
+  // delete: { _id, delete_jobs? } keeps the stage jobs unless delete_jobs; cancel first.
+  for (const action of RUN_ACTIONS) {
+    app.post(`/${action}_curriculum_run`, async (req, res) => {
+      const body = req.body || {};
+      if (!body._id) { res.status(400).json({ error: '_id is required' }); return; }
+      try {
+        res.json(await applyRunAction(dbo, String(body._id), action, { deleteJobs: !!body.delete_jobs }));
+      } catch (e) {
+        if (e instanceof HttpError) res.status(e.status).json({ error: e.message });
+        else sendError(res, `${action}_curriculum_run`, e);
       }
-      await dbo.collection('curriculum_runs').updateOne(
-        { ...filter, status: { $in: ACTIVE_RUN_STATUSES } },
-        { $set: { status: 'CANCEL_REQUESTED', updated_at: new Date() } });
-      if (run.pending && run.pending.job_id) {
-        await dbo.collection('jobs').updateOne(
-          { ...anyIdFilter(run.pending.job_id), status: { $in: ACTIVE_JOB_STATUSES } },
-          { $set: { status: 'CANCELLED' } });
-      }
-      res.json({ ok: true, status: 'CANCEL_REQUESTED' });
-    } catch (e) { sendError(res, 'cancel_curriculum_run', e); }
-  });
-
-  app.post('/retry_curriculum_run', async (req, res) => {
-    // FAILED_GATE: one more attempt, continuing from the last attempt's
-    // checkpoint. FAILED / CANCELLED: the same attempt again, as new jobs.
-    const body = req.body || {};
-    if (!body._id) { res.status(400).json({ error: '_id is required' }); return; }
-    try {
-      const filter = anyIdFilter(body._id);
-      const run = await dbo.collection('curriculum_runs').findOne(filter);
-      if (!run) { res.status(404).json({ error: `curriculum run ${body._id} not found` }); return; }
-      const set: any = { status: 'RUNNING', pending: null, error: null, ended_at: null, updated_at: new Date() };
-      const update: any = { $set: set };
-      if (run.status === 'FAILED_GATE') {
-        set.attempt = (run.attempt || 0) + 1;
-      } else if (run.status === 'FAILED' || run.status === 'CANCELLED') {
-        update.$inc = { generation: 1 };
-      } else {
-        res.status(409).json({ error: `run is ${run.status}; only FAILED_GATE, FAILED or CANCELLED runs can be retried` });
-        return;
-      }
-      await dbo.collection('curriculum_runs').updateOne({ ...filter, status: run.status }, update);
-      res.json({ ok: true, status: 'RUNNING' });
-    } catch (e) { sendError(res, 'retry_curriculum_run', e); }
-  });
-
-  app.post('/delete_curriculum_run', async (req, res) => {
-    // Body: { _id, delete_jobs? }. Keeps the stage jobs (and their models)
-    // unless delete_jobs is true; a running run must be cancelled first.
-    const body = req.body || {};
-    if (!body._id) { res.status(400).json({ error: '_id is required' }); return; }
-    try {
-      const filter = anyIdFilter(body._id);
-      const run = await dbo.collection('curriculum_runs').findOne(filter);
-      if (!run) { res.status(404).json({ error: `curriculum run ${body._id} not found` }); return; }
-      if (ACTIVE_RUN_STATUSES.includes(run.status)) {
-        res.status(409).json({ error: 'cancel the run before deleting it' });
-        return;
-      }
-      let jobsDeleted = 0;
-      if (body.delete_jobs) {
-        jobsDeleted = (await dbo.collection('jobs').deleteMany({ curriculum_run_id: String(run._id) })).deletedCount || 0;
-      }
-      await dbo.collection('curriculum_runs').deleteOne(filter);
-      res.json({ ok: true, jobs_deleted: jobsDeleted });
-    } catch (e) { sendError(res, 'delete_curriculum_run', e); }
-  });
+    });
+  }
 
   // ---- design_specs: robot-agnostic reward specs -------------------- *
   //
@@ -2812,10 +2068,9 @@ export const createServer = (config): express.Application => {
     if (!existing) { res.status(404).json({ error: `experiment design ${body._id} not found` }); return; }
     withExperimentDesignSchema((schemaFields) => {
       if (rejectUnknownKeys(body, res, schemaFields)) return;
-      const update: any = {
-        "$set": { updated_at: new Date() },
-        "$inc": { version: 1 },
-      };
+      const update: any = { "$set": { updated_at: new Date() } };
+      // Archiving or restoring isn't a new version of the design.
+      if (Object.keys(body).some((k) => k !== '_id' && k !== 'archived')) update["$inc"] = { version: 1 };
       if (body.name        !== undefined) update["$set"].name        = String(body.name);
       if (body.description !== undefined) update["$set"].description = String(body.description);
       if (body.archived    !== undefined) update["$set"].archived    = !!body.archived;
@@ -2951,18 +2206,28 @@ export const createServer = (config): express.Application => {
     let idFilter;
     try { idFilter = { "_id": ObjectID(body._id) }; }
     catch (e) { idFilter = { "_id": String(body._id) }; }
-    if (String(body._id).startsWith('microduck:')
+    // Worker-registered gyms (<robot>:<task_id>) are rewritten by their worker at boot.
+    if (/^[a-z0-9_-]+:/i.test(String(body._id))
         && (body.name !== undefined || body.file_path !== undefined)) {
-      res.status(400).json({ error: "microduck gyms are registered by the duck worker; only description and archived can change" });
+      res.status(400).json({ error: "this gym is registered by its robot's worker; name and path come from the task" });
       return;
     }
     const setFields: any = { updated_at: new Date() };
+    const unsetFields: any = {};
     if (body.name        !== undefined) setFields.name        = String(body.name);
     if (body.file_path   !== undefined) setFields.file_path   = stripQuotes(body.file_path);
     if (body.description !== undefined) setFields.description = String(body.description);
     if (body.archived    !== undefined) setFields.archived    = !!body.archived;
+    // Defaults the launch forms and the MCP console prefill for this gym; empty clears one.
+    for (const key of ['default_course_type', 'default_reward_design_id', 'default_experiment_design_id', 'default_init_checkpoint']) {
+      if (body[key] === undefined) continue;
+      if (body[key] === null || String(body[key]).trim() === '') unsetFields[key] = '';
+      else setFields[key] = String(body[key]).trim();
+    }
+    const gymUpdate: any = { "$set": setFields };
+    if (Object.keys(unsetFields).length) gymUpdate["$unset"] = unsetFields;
     dbo.collection("gyms").updateOne(
-      idFilter, { "$set": setFields }, { upsert: false },
+      idFilter, gymUpdate, { upsert: false },
       function(err, result) {
         if (err) {
           console.error('update_gym failed:', err);
@@ -3010,10 +2275,6 @@ export const createServer = (config): express.Application => {
   // /archive_demo  : soft-delete (a hard delete would let the backfill
   //                  script re-register the job)
   // ---------------------------------------------------------------- *
-
-  app.get('/demos', (req, res) => {
-    res.sendFile(path.join(__dirname, '/../demos.html'));
-  });
 
   app.get('/get_demos', (req, res) => {
     if (needsUpdate(req, res, demosChanged, 'demos')) {
@@ -3259,230 +2520,5 @@ export const createServer = (config): express.Application => {
     res.json({ ok: true, error: null, funcs: found });
   });
 
-  // ---- TensorBoard comparison bucket ------------------------------
-  //
-  // /tmp/tb_compare/ is the on-demand bucket scanned by the
-  // TensorBoard server (see sim-controller's --logdir_spec compare:
-  // ... in docker-compose.yml). The dashboard manages its contents
-  // through this endpoint:
-  //
-  //   POST /set_tb_compare_jobs  { jobIds: [...] }
-  //     1. ensure /tmp/tb_compare exists (mkdir -p)
-  //     2. remove every existing symlink (NOT real directories - the
-  //        bucket should only contain symlinks, but be defensive)
-  //     3. for each jobId, symlink /tmp/jobsdata/<jobId> ->
-  //        /tmp/tb_compare/<jobId> if the source exists
-  //     4. return { linked: [...], missing: [...] }
-  //
-  // The dashboard's Models -> Compare flow calls this BEFORE
-  // re-pointing the TB iframe at a filter URL, so TB sees exactly
-  // the user's selection on next reload_interval (~5s).
-  //
-  // /tmp is bind-mounted from the host into BOTH the dashboard and
-  // sim-controller containers via docker-compose.yml's `source:
-  // ../tmp; target: /tmp` blocks, so a symlink we create here is
-  // visible to TB inside sim-controller.
-  app.post('/set_tb_compare_jobs', (req, res) => {
-    const COMPARE_ROOT = '/tmp/tb_compare';
-    const ARCHIVED_ROOT = '/tmp/jobsdata';
-
-    const body = req.body || {};
-
-    // Two accepted request shapes:
-    //   Legacy: { jobIds: ["<oid>", ...] }
-    //     -> symlink at /tmp/tb_compare/<oid>; TB run name becomes
-    //        "compare/<oid>/<sub>" - opaque, hard to map back to
-    //        the Analysis-tab slot the user sees on the right.
-    //   Labeled: { jobs: [{ jobId: "<oid>", label: "base" }, ...] }
-    //     -> symlink at /tmp/tb_compare/<label>_<short_jobId>; TB
-    //        run becomes "compare/base_6a09ddd9/<sub>" - the operator
-    //        can read it off the sidebar and immediately know which
-    //        Analysis-tab column the run belongs to.
-    //
-    // The labeled shape is what the goldenlayout shell sends after
-    // sorting selected models by create_date. The legacy shape is
-    // still supported as a fallback (e.g., manual curl, older
-    // dashboard builds).
-    type JobEntry = { jobId: string; label: string | null };
-    const safeIdRe = /^[a-zA-Z0-9_-]{1,64}$/;
-    // Labels are even more permissive than ids but still bounded;
-    // we use them to name a filesystem dir so we strip anything that
-    // could break the path (no slashes, dots, etc.).
-    const safeLabelRe = /^[a-zA-Z0-9_-]{1,32}$/;
-    let entries: JobEntry[] = [];
-    if (Array.isArray(body.jobs)) {
-      entries = (body.jobs as any[])
-        .map((j: any) => ({
-          jobId: String((j && j.jobId) || '').trim(),
-          label: (j && j.label && safeLabelRe.test(String(j.label)))
-            ? String(j.label) : null,
-        }))
-        .filter((e) => e.jobId.length > 0 && safeIdRe.test(e.jobId));
-    } else {
-      const rawIds = Array.isArray(body.jobIds) ? body.jobIds : [];
-      entries = rawIds
-        .map((x: any) => String(x || '').trim())
-        .filter((s: string) => s.length > 0 && safeIdRe.test(s))
-        .map((jobId: string) => ({ jobId, label: null }));
-    }
-    const jobIds: string[] = entries.map((e) => e.jobId);
-
-    try {
-      fs.mkdirSync(COMPARE_ROOT, { recursive: true });
-    } catch (e: any) {
-      // mkdir failure is fatal - we can't manage the bucket.
-      res.status(500).json({
-        ok: false,
-        error: `mkdir ${COMPARE_ROOT} failed: ${String(e && e.message || e)}`,
-        linked: [], missing: [],
-      });
-      return;
-    }
-
-    // Sweep the bucket. We ONLY remove symlinks (and broken-symlink
-    // dangling entries). If somehow a real directory ended up in
-    // here, leave it - we shouldn't be deleting real data the
-    // dashboard didn't put here.
-    try {
-      const entries = fs.readdirSync(COMPARE_ROOT);
-      for (const name of entries) {
-        const p = path.join(COMPARE_ROOT, name);
-        let st: any;
-        try { st = fs.lstatSync(p); }
-        catch (_e) { continue; }
-        if (st.isSymbolicLink()) {
-          try { fs.unlinkSync(p); }
-          catch (e) {
-            console.warn(`set_tb_compare_jobs: failed to unlink ${p}: ${e}`);
-          }
-        }
-      }
-    } catch (e) {
-      // readdir failure isn't fatal; we'll just stack new symlinks
-      // alongside whatever was there.
-      console.warn(`set_tb_compare_jobs: readdir ${COMPARE_ROOT} failed: ${e}`);
-    }
-
-    const linked: string[] = [];
-    const missing: string[] = [];
-    // jobId -> on-disk symlink basename so the caller can mirror the
-    // mapping into its TB regex filter.
-    const linkNames: { [jobId: string]: string } = {};
-    for (const entry of entries) {
-      const id = entry.jobId;
-      // move_all_jobs_data() in rl_agent/robotaxi.py archives
-      // /tmp/active/<id>/{eval,train,learner,metrics}/ AS
-      // /tmp/jobsdata/<id>/<id>/{eval,train,learner,metrics}/ -
-      // doubly nested - because the function groups everything for
-      // a job under its own subdir of /tmp/jobsdata/<id>/.
-      //
-      // We want TB run names to look like "compare/<label>_<short>/eval"
-      // (parallel to "current/<id>/eval" for the live job), not
-      // "compare/<id>/<id>/eval". So if the inner doubled-up dir
-      // exists, symlink to THAT; otherwise fall back to the outer
-      // dir (covers any legacy single-nested archives + a future
-      // refactor of move_all_jobs_data that flattens the layout).
-      const outerSrc = path.join(ARCHIVED_ROOT, id);
-      const innerSrc = path.join(outerSrc, id);
-      let src: string;
-      if (fs.existsSync(innerSrc) && fs.statSync(innerSrc).isDirectory()) {
-        src = innerSrc;
-      } else if (fs.existsSync(outerSrc) && fs.statSync(outerSrc).isDirectory()) {
-        src = outerSrc;
-      } else {
-        // Could be a model whose job was never archived (e.g., the
-        // currently-training job - its data is in /tmp/active, not
-        // /tmp/jobsdata, so the regex filter on the TB iframe URL
-        // will hit it under the "current" experiment instead).
-        missing.push(id);
-        continue;
-      }
-      // Compose the symlink basename. With a label: e.g.
-      // "base_0f407569" (label + last 8 chars of jobId for visual
-      // disambiguation when two labels match - shouldn't happen in
-      // normal use, but the short-id suffix keeps the symlink
-      // stably distinct).
-      //
-      // Last 8 chars (not first 8) so this matches the rest of the
-      // dashboard: formatters.shortId in dashboard/components.js
-      // also uses slice(-8) for table cells like the Models tab's
-      // ID column. That way an operator who notes "model
-      // ...0f407569" on the Models tab can immediately recognize
-      // "base_0f407569" in the TB sidebar without mental
-      // remapping.
-      //
-      // Without a label: the full jobId (legacy back-compat).
-      const dstName = entry.label
-        ? `${entry.label}_${id.slice(-8)}`
-        : id;
-      const dst = path.join(COMPARE_ROOT, dstName);
-      try {
-        // Type 'dir' makes Windows happy if this ever runs on a
-        // Windows container; on Linux it's ignored. fs.symlinkSync
-        // is sync because the whole endpoint is sub-100ms and an
-        // async chain isn't worth the complexity.
-        fs.symlinkSync(src, dst, 'dir');
-        linked.push(id);
-        linkNames[id] = dstName;
-      } catch (e: any) {
-        console.error(`set_tb_compare_jobs: symlink ${src} -> ${dst} failed: ${e}`);
-        missing.push(id);
-      }
-    }
-
-    res.json({ ok: true, linked, missing, linkNames });
-  });
-
-  app.get('/', (req, res) => {
-    const indexPagePath: string = path.join(__dirname, '/../index.html');
-    fs.access(indexPagePath, (err) => {
-      if (err) {
-        log(LogLevel.warn, `Can't find file ' ${indexPagePath}`);
-        res.status(404).send(`Can't find file ${indexPagePath}`);
-      } else {
-        res.sendFile(indexPagePath);
-      }
-    });
-  });
   return app;
 };
-// create websocket server for log tailing (used by logs.html)
-const wss = new WebSocket.Server({ port: 8080 });
-
-wss.on('connection', (ws) => {
-  // Was '/python_ws/src/robotaxi.out' (2026-07-19 fix): that path is only
-  // ever written when sim-controller runs its ORIGINAL compose-declared
-  // command (`python -u robotaxi.py | tee robotaxi.out`). Every ad hoc
-  // trainer restart this project does in practice (killing + relaunching
-  // robotaxi.py by hand after a code change, a wedge, a gym swap, etc. -
-  // see scripts/Monitor-Job.ps1 and the README's manual-restart section)
-  // instead runs `python -u robotaxi.py > /tmp/trainer.log 2>&1` directly,
-  // which never touches robotaxi.out again - so the log viewer tab was
-  // silently tailing an abandoned file that stopped updating the moment
-  // anyone did their first manual restart. /tmp/trainer.log lives on the
-  // `tmpdata` named volume both sim-controller and dashboard already share
-  // (see docker-compose.yml), so it's visible here regardless of whether
-  // the trainer was started via compose's default command or a manual
-  // exec - use that instead. `-F` (vs `-f`) also retries opening the file
-  // by name rather than by file descriptor, so a manual restart that
-  // recreates the file out from under an already-open log tab doesn't
-  // leave that tab stuck tailing a dead handle.
-  const dockerLogs = spawn('tail', ['-F', '-n', '100', '/tmp/trainer.log']);
-
-  dockerLogs.stdout.on('data', (data) => {
-    ws.send(data.toString());
-  });
-
-  dockerLogs.stderr.on('data', (data) => {
-    console.error(`stderr: ${data}`);
-  });
-
-  dockerLogs.on('close', (code) => {
-    console.log(`child process exited with code ${code}`);
-  });
-
-  ws.on('close', () => {
-    dockerLogs.kill();
-  });
-});
-

@@ -1,4 +1,4 @@
-// The subset of dashboard/analysis.html's statistics the compare tool reports.
+// The statistics the compare tool reports; the dashboard's Compare page computes the same (dashboard/app/src/lib/stats.ts).
 
 export const mean = (a) => a.reduce((s, x) => s + x, 0) / a.length;
 
