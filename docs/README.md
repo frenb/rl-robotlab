@@ -37,6 +37,7 @@ Start with the [project README](../README.md). Guides describe what exists; desi
 | [csi-camera-observation-guide.md](csi-camera-observation-guide.md) | Putting the CSI camera on the learning loop |
 | [real2sim-fence-colliders-plan.md](real2sim-fence-colliders-plan.md) | Collidable fences on the real2sim track model |
 | [madscientist-autonomous-codegen.md](madscientist-autonomous-codegen.md) | Letting the Mad Scientist write the code its experiments need |
+| [self-improvement-loop-plan.md](self-improvement-loop-plan.md) | Experiments with several arms for every kind of change, robot extension points, skills, and accepting or auto-applying proven improvements |
 | [robot-ingestion-and-openbeni-plan.md](robot-ingestion-and-openbeni-plan.md) | Standardizing multi-robot ingestion (`robot.yaml`, shared `mjlab_core`) and importing `Mondo-Robotics/open-beni` |
 | [proposal-spawn-multiprocessing.md](proposal-spawn-multiprocessing.md) | Switching parallel environment workers from fork to spawn |
 | [shared-mongodb-plan.md](shared-mongodb-plan.md) | Sharing the database with a second developer |
@@ -47,7 +48,7 @@ Start with the [project README](../README.md). Guides describe what exists; desi
 
 | Doc | What it covers |
 |---|---|
-| [drafts/rl-roboracer-preprint.md](drafts/rl-roboracer-preprint.md) | Working draft: reward design and demonstration-guided RL ablations |
+| [drafts/rl-robotlab-preprint.md](drafts/rl-robotlab-preprint.md) | Working draft: reward design and demonstration-guided RL ablations |
 
 ## Media
 
