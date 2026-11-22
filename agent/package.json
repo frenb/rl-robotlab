@@ -1,0 +1,15 @@
+{
+  "name": "robot-lab-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Host-side agent bridge for the Robot Lab chat: runs the model loop and calls the roboracer-console MCP tools. No dependencies.",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test \"test/*.test.js\""
+  }
+}
